@@ -34,7 +34,7 @@ git submodule init
 
 git submodule update
 
-./autogen
+./autogen.sh
 
 CXX=clang++-12 ./configure --enable-next-protocol-version-unsafe-for-production
 
