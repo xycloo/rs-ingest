@@ -1,8 +1,8 @@
-use std::ops::RangeBounds;
+use std::{ops::RangeBounds, sync::mpsc::Receiver};
 
 use stellar_xdr::{next::{LedgerCloseMeta, LedgerCloseMetaV1}};
 
-use crate::{StellarCoreRunner, IngestionConfig, StellarCoreRunnerPublic, RunnerError, toml::generate_predefined_cfg};
+use crate::{StellarCoreRunner, IngestionConfig, StellarCoreRunnerPublic, RunnerError, toml::generate_predefined_cfg, MetaResult};
 
 pub struct ContextPath(pub String);
 
@@ -37,8 +37,8 @@ impl Range {
 #[derive(thiserror::Error, Debug, Clone )]
 
 pub enum Error {
-    #[error("error while running catchup: {0}")]
-    Catchup(#[from] RunnerError),
+    #[error("error while running core: {0}")]
+    Core(#[from] RunnerError),
 
     #[error("requested ledger was not found in prepared ledgers")]
     LedgerNotFound,
@@ -57,18 +57,22 @@ impl CaptiveCore {
     }
 
 
-    fn offline_replay(&mut self, from: u32, to: u32) -> Result<(), Error> {
+    fn offline_replay_single_thread(&mut self, from: u32, to: u32) -> Result<(), Error> {
         // TODO: get archiver last checkpoint ledger for error accuracy.
 
-        self.stellar_core_runner.catchup(from, to)?;
+        self.stellar_core_runner.catchup_single_thread(from, to)?;
 
         Ok(())
     }
 
-    pub fn prepare_ledgers(&mut self, range: &Range) -> Result<(), Error> {
+    fn offline_replay_multi_thread(&mut self, from: u32, to: u32) -> Result<Receiver<MetaResult>, Error> {
+        Ok(self.stellar_core_runner.catchup_multi_thread(from, to)?)
+    }
+
+    pub fn prepare_ledgers_single_thread(&mut self, range: &Range) -> Result<(), Error> {
         match range {
             Range::Bounded(range) => {
-                self.offline_replay(range.0, range.1)?;
+                self.offline_replay_single_thread(range.0, range.1)?;
             }
         };
 
@@ -85,9 +89,6 @@ impl CaptiveCore {
                     LedgerCloseMeta::V1(v1) => v1.ledger_header.header.ledger_seq,
                     _ => unreachable!()
                 };
-                
-                //let json = serde_json::to_string(&meta).expect("serialization error");
-                //let deser: LedgerCloseMetaV1 = serde_json::from_str(&json).unwrap();
 
                 if ledger_seq == sequence {
                     return Ok(meta)
@@ -96,5 +97,11 @@ impl CaptiveCore {
         }
 
         Err(Error::LedgerNotFound)
+    }
+
+    // TODO: method to start from ledger.
+
+    pub fn start_online_no_range(&mut self) -> Result<Receiver<MetaResult>, Error> {
+        Ok(self.stellar_core_runner.run()?)
     }
 }

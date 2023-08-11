@@ -10,7 +10,7 @@ pub fn main() {
     let mut captive_core = CaptiveCore::new(config);
 
     let range = Range::Bounded(BoundedRange(292395, 292396));
-    captive_core.prepare_ledgers(&range).unwrap();
+    captive_core.prepare_ledgers_single_thread(&range).unwrap();
 
     let ledger = captive_core.get_ledger(292395);
     let ledger_seq = match ledger.unwrap() {

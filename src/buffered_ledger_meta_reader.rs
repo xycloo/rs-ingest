@@ -1,5 +1,7 @@
 use std::io::{self, Read};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncBufReadExt, BufReader as BufReaderAsync, AsyncRead};
+use tokio::sync::Mutex as MutexAsync;
 use serde::Serialize;
 use stellar_xdr::next::{TypeVariant, LedgerCloseMeta, LedgerCloseMetaV1, Type};
 
@@ -15,6 +17,18 @@ pub enum BufReaderError {
 
     #[error("error decoding XDR")]
     ReadXdrNext,
+
+    #[error("wants to run single-threaded mode but specified transmitter")]
+    UnusedTransmitter,
+
+    #[error("wants to run multi-threaded mode but no transmitter specified")]
+    MissingTransmitter,
+
+    #[error("wants to use single-threaded mode features but is multi-thread mode")]
+    WrongModeMultiThread,
+
+    #[error("wants to use multi-threaded mode features but is single-thread mode")]
+    WrongModeSingleThread
 }
 
 #[derive(Clone)]
@@ -52,34 +66,72 @@ pub struct MetaResult {
     pub err: Option<BufReaderError>
 }
 
+#[derive(PartialEq, Eq)]
+pub enum BufferedLedgerMetaReaderMode {
+    SingleThread,
+    MultiThread,
+}
+
 pub struct BufferedLedgerMetaReader {
-    pub r: io::BufReader<Box<dyn Read>>,
-    pub c: Arc<Mutex<Vec<MetaResult>>>,
+    mode: BufferedLedgerMetaReaderMode,
+    reader: io::BufReader<Box<dyn Read + Send>>,
+    cached: Option<Arc<Mutex<Vec<MetaResult>>>>,
+    transmitter: Option<std::sync::mpsc::Sender<MetaResult>>,
 }
 
-pub trait BufferedLedgerMetaReaderPublic {
-    fn new(reader: Box<dyn Read>) -> Self;
+impl BufferedLedgerMetaReader {
+    pub fn new(mode: BufferedLedgerMetaReaderMode, reader: Box<dyn Read + Send>, transmitter: Option<std::sync::mpsc::Sender<MetaResult>>) -> Result<Self, BufReaderError> {
+        let reader = io::BufReader::with_capacity(META_PIPE_BUFFER_SIZE, reader);
+        let (cached, transmitter) = match mode {
+            BufferedLedgerMetaReaderMode::SingleThread => {
+                if transmitter.is_some() {
+                    return Err(BufReaderError::UnusedTransmitter);
+                }
 
-    fn read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError>;
-    
-    fn read_meta(&self) -> Vec<MetaResult>;
+                (Some(Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE)))), None)
+            },
+            BufferedLedgerMetaReaderMode::MultiThread => {
+                if transmitter.is_none() {
+                    return Err(BufReaderError::MissingTransmitter);
+                }
 
-    fn clear_buffered(&mut self);
-}
+                (None, transmitter)
+            },
+        };
 
-
-impl BufferedLedgerMetaReaderPublic for BufferedLedgerMetaReader {
-    fn new(reader: Box<dyn Read>) -> Self {
-        let r = io::BufReader::with_capacity(META_PIPE_BUFFER_SIZE, reader);
-
-        Self { 
-            r, 
-            c: Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE))) 
-        }
+        Ok(
+            Self { 
+                mode,
+                reader, 
+                cached,
+                transmitter, 
+            }
+        )
     }
+}
 
-    fn read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError> {
-        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.r) {
+pub trait SingleThreadBufferedLedgerMetaReader {
+
+    fn single_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError>;
+    
+    fn read_meta(&self) -> Result<Vec<MetaResult>, BufReaderError>;
+
+    fn clear_buffered(&mut self) -> Result<(), BufReaderError>;
+}
+
+pub trait MultiThreadBufferedLedgerMetaReader {
+
+    fn multi_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError>;    
+}
+
+
+impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
+    fn single_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError> {
+        if self.mode != BufferedLedgerMetaReaderMode::SingleThread {
+            return Err(BufReaderError::WrongModeMultiThread)
+        }
+
+        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.reader) {
             let meta_obj = match t {
                 Ok(ledger_close_meta) => MetaResult {
                     ledger_close_meta: Some(ledger_close_meta.into()),
@@ -92,20 +144,64 @@ impl BufferedLedgerMetaReaderPublic for BufferedLedgerMetaReader {
                 }
             };
             
-            self.c.lock().unwrap().push(meta_obj);
+            // The blow unwrap on cached is safe since initialization
+            // prevents initializing in the wrong mode and all
+            // BufferedLedgerMetaReader fields are private.
+            self.cached.as_ref().unwrap().lock().unwrap().push(meta_obj);
         }
 
         Ok(())
     }
 
-    fn read_meta(&self) -> Vec<MetaResult> {
-        let locked = self.c.lock().unwrap();
-        (*locked).clone()
+    fn read_meta(&self) -> Result<Vec<MetaResult>, BufReaderError> {
+        if self.mode != BufferedLedgerMetaReaderMode::SingleThread {
+            return Err(BufReaderError::WrongModeMultiThread)
+        }
+
+        // The blow unwrap on cached is safe since initialization
+        // prevents initializing in the wrong mode and all
+        // BufferedLedgerMetaReader fields are private.
+        let locked = self.cached.as_ref().unwrap().lock().unwrap();
+        Ok((*locked).clone())
     }
 
-    fn clear_buffered(&mut self) {
-        self.c = Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE)));
+    fn clear_buffered(&mut self) -> Result<(), BufReaderError> {
+        if self.mode != BufferedLedgerMetaReaderMode::SingleThread {
+            return Err(BufReaderError::WrongModeMultiThread)
+        }
+
+        self.cached = Some(Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE))));
+        Ok(())
     }
 
 }
 
+
+impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
+    fn multi_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError> {
+        if self.mode != BufferedLedgerMetaReaderMode::MultiThread {
+            return Err(BufReaderError::WrongModeSingleThread)
+        }
+
+        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.reader) {
+            let meta_obj = match t {
+                Ok(ledger_close_meta) => MetaResult {
+                    ledger_close_meta: Some(ledger_close_meta.into()),
+                    err: None
+                },
+
+                Err(error) => MetaResult { 
+                    ledger_close_meta: None, 
+                    err: Some(BufReaderError::ReadXdrNext)
+                }
+            };
+            
+            // The blow unwrap on the transmitter is safe since
+            // initialization prevents initializing in the wrong mode
+            // and all BufferedLedgerMetaReader fields are private.
+            self.transmitter.as_ref().unwrap().send(meta_obj).unwrap();
+        }
+
+        Ok(())
+    }
+}

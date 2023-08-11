@@ -1,10 +1,10 @@
-use std::{process::{Command, Child}, fmt::format, io::BufReader};
-use crate::{IngestionConfig, BufferedLedgerMetaReader, BufferedLedgerMetaReaderPublic, BufReaderError, MetaResult};
+use std::{process::{Command, Child}, fmt::format, io::{BufReader, self}, thread::{self, JoinHandle}, sync::{Arc, Mutex, mpsc::Receiver}};
+use crate::{IngestionConfig, BufferedLedgerMetaReader, BufReaderError, MetaResult, SingleThreadBufferedLedgerMetaReader, BufferedLedgerMetaReaderMode, MultiThreadBufferedLedgerMetaReader};
 use std::io::{BufRead, Error, ErrorKind};
 
 
 #[derive(PartialEq, Eq)]
-enum RunnerStatus {
+pub enum RunnerStatus {
     RunningOffline,
     RunningOnline,
     Closed
@@ -63,16 +63,25 @@ impl StellarCoreRunner {
         }
     }
 
-    fn load_prepared(&mut self) {
-        let ledgers_meta = self.ledger_buffer_reader.as_ref().unwrap().read_meta();
-        self.prepared = Some(ledgers_meta);
+    fn load_prepared(&mut self) -> Result<(), RunnerError> {
+        match self.ledger_buffer_reader.as_ref().unwrap().read_meta() {
+            Ok(ledgers_meta) => { 
+                self.prepared = Some(ledgers_meta);
+                Ok(())
+            },
+            Err(error) => Err(RunnerError::MetaReader(error))
+        }
     }
 }
 
 pub trait StellarCoreRunnerPublic {
     fn new(config: IngestionConfig) -> Self;
 
-    fn catchup(&mut self, from: u32, to: u32) -> Result<(), RunnerError>;
+    fn catchup_single_thread(&mut self, from: u32, to: u32) -> Result<(), RunnerError>;
+
+    fn catchup_multi_thread(&mut self, from: u32, to: u32) -> Result<Receiver<MetaResult>, RunnerError>;
+
+    fn run(&mut self) -> Result<Receiver<MetaResult>, RunnerError>;
 
     fn read_prepared(&self) -> Vec<MetaResult>;
 }
@@ -88,13 +97,14 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         }
     }
 
-    fn catchup(&mut self, from: u32, to: u32)-> Result<(), RunnerError> {
+    fn catchup_single_thread(&mut self, from: u32, to: u32)-> Result<(), RunnerError> {
         if self.status != RunnerStatus::Closed {
             return Err(RunnerError::AlreadyRunning)
         }
 
         self.status = RunnerStatus::RunningOffline;
 
+        // Note the below info doesn't apply to catchup.
         // This whole block exists to make sure the starting
         // point for the catchup is correct.
         //
@@ -134,16 +144,108 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         //.filter_map(|line| line.ok())
         //.for_each(|line| println!("{}", line));
 
-        self.ledger_buffer_reader = Some(BufferedLedgerMetaReader::new(Box::new(reader)));
+        let ledger_buffer_reader = match BufferedLedgerMetaReader::new(BufferedLedgerMetaReaderMode::SingleThread, Box::new(reader), None) {
+            Ok(reader) => reader,
+            Err(error) => return Err(RunnerError::MetaReader(error))
+        };
+        self.ledger_buffer_reader = Some(ledger_buffer_reader);
         
-        self.ledger_buffer_reader.as_mut().unwrap().read_ledger_meta_from_pipe()?;
+        self.ledger_buffer_reader.as_mut().unwrap().single_thread_read_ledger_meta_from_pipe()?;
 
         // Once the stream is finished we can switch back to closed.
         self.status = RunnerStatus::Closed;
 
-        self.load_prepared();
+        self.load_prepared()?;
         
         Ok(())
+    }
+
+    fn catchup_multi_thread(&mut self, from: u32, to: u32)-> Result<Receiver<MetaResult>, RunnerError> {
+        if self.status != RunnerStatus::Closed {
+            return Err(RunnerError::AlreadyRunning)
+        }
+
+        self.status = RunnerStatus::RunningOffline;
+
+        let range = format!("{}/{}", to, to - from + 1);
+    
+        let stdout = self.run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"])?
+            .stdout
+            .take()
+            .unwrap(); // TODO: handle panic
+
+        let reader = BufReader::new(stdout);
+        
+        let (transmitter, receiver) = std::sync::mpsc::channel();
+        
+        let handle = {
+            let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
+                BufferedLedgerMetaReaderMode::MultiThread, 
+                Box::new(reader), 
+                Some(transmitter)
+            ) {
+                Ok(reader) => reader,
+                Err(error) => return Err(RunnerError::MetaReader(error))
+            };
+    
+            thread::spawn(move || {
+                stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+            })
+        };
+
+        Ok(receiver)
+    }
+
+
+
+    fn run(&mut self) -> Result<Receiver<MetaResult>, RunnerError> {
+        if self.status != RunnerStatus::Closed {
+            return Err(RunnerError::AlreadyRunning)
+        }
+
+        self.status = RunnerStatus::RunningOnline;
+
+        // Creating/resetting the DB and a quick catchup. 
+        {
+            let _ = self.run_core_cli(&["new-db"])?
+                        .wait()
+                        .unwrap();
+
+            let _ = self.run_core_cli(&["catchup", "current/2"])?
+                        .wait()
+                        .unwrap();
+        }
+                    
+        let stdout = self.run_core_cli(
+        &[
+            "run", 
+            "--metadata-output-stream fd:1"
+            ]
+        )?
+        .stdout
+            .take()
+            .unwrap(); // TODO: handle panic;
+
+        let reader = BufReader::new(stdout);
+
+        let (transmitter, receiver) = std::sync::mpsc::channel();
+        
+        let handle = {
+            let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
+                BufferedLedgerMetaReaderMode::MultiThread, 
+                Box::new(reader), 
+                Some(transmitter)
+            ) {
+                Ok(reader) => reader,
+                Err(error) => return Err(RunnerError::MetaReader(error))
+            };
+    
+            thread::spawn(move || {
+                stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+            })
+        };
+
+        Ok(receiver)
     }
 
     fn read_prepared(&self) -> Vec<MetaResult> {
@@ -151,5 +253,3 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
     }
 
 }
-
-

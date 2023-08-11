@@ -13,7 +13,7 @@ pub fn main() {
     let range = Range::Bounded(BoundedRange(292_000, 302_000)); 
     
     println!("[+] Preparing ledgers [{} to {}]", range.bounded().0, range.bounded().1);
-    captive_core.prepare_ledgers(&range).unwrap();
+    captive_core.prepare_ledgers_single_thread(&range).unwrap();
 
     let mut all_other_ops = 0;
     let mut invoke_host_ops = 0;

@@ -16,3 +16,6 @@ serde = { version = "1.0.139", features = ["derive"] }
 serde_json = "1.0.89"
 thiserror = { version = "1.0.37"}
 os_pipe = "1.1.4"
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1.72"
+
