@@ -7,13 +7,38 @@ Often, developers either need ingestion features that are outside of Horizon's s
 
 This crate is being designed with this need in mind, and works on futurenet!
 
-> Note: This crate is still a work in progress (in fact it was started on Aug 8). The current capabilities of the crate are limited.
+> Note: This crate is still a work in progress. The current capabilities of the crate are limited.
 
 > Note: Currently only POSIX systems are supported.
 
 # Features
 
-Currently, only replaying history is supported, but unbounded ingesting will be added soon.
+Currently, you can both replay history and run online. Running online does not currently support running starting to replay history from a given ledger. 
+
+Note that the current implementation is experimental and does not cover all the functionalities that an ingestion crate should, including but not limited to failsafe mechanisms, archiver interaction, custom toml configuration, readers, and overall a more optimized codebase.
+
+## Running offline
+Running offline means being able to replay history through a catchup. Replaying history will enable you to process everything that has happened on the network within the specified bounded range. 
+
+`rs-ingest` allows you to run offline in two modes:
+- single-thread
+- multi-thread
+
+### Single-thread mode
+Running single-thread mode is the most straightforward way of using `rs-ingest`. This mode will await for the core subprocess to finish catching up and will then allow to retrieve the ledger(s) metadata.
+
+Running single-thread mode will store every ledger meta.
+
+### Multi-thread mode
+Running multi-thread mode is also pretty simple, but returns a `Receiver<MetaResult>` object that receives new ledger meta (already decoded) as soon as it is emitted.
+
+When you run multi-thread mode you will be in charge of how to store the metadata or object derived from it.
+
+## Running online
+Running online means being able to sync with Futurenet and close ledgers, thus receive ledger close meta. This mode is more suitable for building using real-time data (for example event streaming).
+
+### Multi-threaded mode
+Running online can only be done in multi-thread mode. You'll receive a `Receiver<MetaResult>` object which receives ledger close meta as stellar-core closes ledgers.
 
 # Try it out
 
@@ -45,6 +70,9 @@ make install [this one might need root access on some machines]
 
 
 # Learn
+- [Hello ledger](#hello-ledger)
+- [Operation analytics](#invoke-host-function-operations-statistics)
+- [Event streaming with online mode](#event-streaming-with-online-mode)
 
 The `ingest` crate is pretty easy to use, especially currently since the amount of features is limited and there is a predefined TOML configuration.
 
@@ -209,3 +237,77 @@ Invoke host function operations: 487
 ```
 
 This means that one every ~5 and a half operations for the captured ledgers is an invoke host function operation.
+
+
+## Event streaming with online mode
+Running online mode is suitable for tasks that need to ingest real-time data. For example, think of an indexer for contract events. 
+It needs to store in a database all events following a certain schema and makes them available by exposing a queriable API. 
+The service needs to provide real-time data to its customers, thus will need to run online mode. 
+
+In this example, we explore how we can print out contract events, if any, as ledgers close and the network progresses.
+
+As always, we set up our captive core with the usual configs:
+
+```rust
+use ingest::{IngestionConfig, CaptiveCore};
+use stellar_xdr::next::{LedgerCloseMeta, TransactionMeta};
+
+pub fn main() {
+    let config = IngestionConfig {
+        executable_path: "/usr/local/bin/stellar-core".to_string(),
+        context_path: Default::default(),
+    };
+
+    let mut captive_core = CaptiveCore::new(config);
+
+    // ...
+}
+```
+
+Now, we need to start our core instance in online mode:
+
+```rust
+pub fn main() {
+    // ...
+
+    let receiver = captive_core.start_online_no_range().unwrap();
+
+    // ...
+}
+
+```
+
+As you can see, we're obtaining a receiver object from starting online. 
+The `Receiver<MetaResult>` object is needed for our runner instance thread to communicate with the implementor, i.e you. In fact when you call `captive_core.start_online_no_range()` you are also spawning the stella-core run process and the buffered ledger meta process, which will send meta to the receiver as new framed ledger close meta is decoded. 
+
+Now you can choose how to deal with the receiver, in our case we just loop over it and print out contract events if we find any:
+
+```rust
+pub fn main() {
+    println!("Capturing all events. When a contract event will be emitted it will be printed to stdout");
+    for result in receiver.iter() {
+        let ledger = result.ledger_close_meta.unwrap().ledger_close_meta;
+        match &ledger {
+            LedgerCloseMeta::V1(v1) => {
+                for tx_processing in v1.tx_processing.iter() {
+                    match &tx_processing.tx_apply_processing {
+                        TransactionMeta::V3(meta) => {
+                            if let Some(soroban) = &meta.soroban_meta {
+                                if !soroban.events.is_empty() {
+                                    println!("Events for ledger {}: \n{}\n",  v1.ledger_header.header.ledger_seq, serde_json::to_string_pretty(&soroban.events).unwrap())
+                                }
+                            }
+                        },
+                        _ => todo!()
+                    }
+                }
+            },
+            _ => ()
+        }
+    }
+}
+```
+
+As you can see, we're just destructuring every `MetaResult` we receive and print out, if any, the events on the processed ledger.
+
+This might be a good starting point to start working on an indexer for you protocol's contract events.
