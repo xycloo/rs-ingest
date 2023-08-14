@@ -21,11 +21,13 @@ pub struct StellarCoreRunner {
 
     ledger_buffer_reader: Option<BufferedLedgerMetaReader>,
 
-    prepared: Option<Vec<MetaResult>>
+    prepared: Option<Vec<MetaResult>>,
+
+    process: Option<Child>
 
 }
 
-#[derive(thiserror::Error, Debug, Clone)]
+#[derive(thiserror::Error, Debug)]
 pub enum RunnerError {
     #[error("instance of core already running")]
     AlreadyRunning,
@@ -34,12 +36,21 @@ pub enum RunnerError {
     CliExec,
 
     #[error("error in reading ledger metadata {0}")]
-    MetaReader(#[from] BufReaderError)
+    MetaReader(#[from] BufReaderError),
+
+    #[error("instance of core already closed")]
+    AlreadyClosed,
+
+    #[error("process error {0}")]
+    Process(#[from] std::io::Error),
+
+    #[error("Asked to kill process, but no process was found")]
+    ProcessNotFound
 }
 
 
 impl StellarCoreRunner {
-    fn run_core_cli(&self, args: &[&str]) -> Result<Child, RunnerError> {
+    fn run_core_cli(&mut self, args: &[&str]) -> Result<(), RunnerError> {
         let conf_arg = format!("--conf {}/stellar-core.cfg", self.context_path);
 
         let mut cmd = Command::new(&self.executable_path);
@@ -58,9 +69,35 @@ impl StellarCoreRunner {
 
 
         match cmd {
-            Ok(child) => Ok(child),
+            Ok(child) => {
+                self.process = Some(child);
+                //Ok(child)
+                Ok(())
+            },
             Err(_) => Err(RunnerError::CliExec)
         }
+    }
+
+    fn kill_process(&mut self) -> Result<(), RunnerError> {
+        if let Some(child) = self.process.as_mut() {
+            child.kill()?;
+            self.process = None;
+
+            Ok(())
+        } else {
+            Err(RunnerError::ProcessNotFound)
+        }
+    }
+
+    fn remove_temp_data(&self) -> Result<(), RunnerError> {
+        let mut cmd = Command::new("rm");
+        cmd.arg("-rf").arg("buckets").current_dir(&self.context_path).spawn()?;
+
+        Ok(())
+    }
+
+    fn reset_bufreader(&mut self) {
+        self.ledger_buffer_reader = None
     }
 
     fn load_prepared(&mut self) -> Result<(), RunnerError> {
@@ -71,6 +108,14 @@ impl StellarCoreRunner {
             },
             Err(error) => Err(RunnerError::MetaReader(error))
         }
+    }
+
+    pub fn status(&self) -> &RunnerStatus {
+        &self.status
+    }
+
+    pub fn thread_mode(&self) -> &BufferedLedgerMetaReaderMode {
+        self.ledger_buffer_reader.as_ref().unwrap().thread_mode()
     }
 }
 
@@ -84,6 +129,8 @@ pub trait StellarCoreRunnerPublic {
     fn run(&mut self) -> Result<Receiver<MetaResult>, RunnerError>;
 
     fn read_prepared(&self) -> Vec<MetaResult>;
+
+    fn close_runner(&mut self) -> Result<(), RunnerError>;
 }
 
 impl StellarCoreRunnerPublic for StellarCoreRunner {
@@ -93,7 +140,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
             context_path: config.context_path.0,
             status: RunnerStatus::Closed,
             ledger_buffer_reader: None,
-            prepared: None
+            prepared: None,
+            process: None,
         }
     }
 
@@ -132,8 +180,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 
         let range = format!("{}/{}", to, to - from + 1);
     
-        let stdout = self.run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"])?
-            .stdout
+        self.run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"])?;
+        let stdout = self.process.as_mut().unwrap().stdout
             .take()
             .unwrap(); // TODO: handle panic
 
@@ -152,10 +200,10 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         
         self.ledger_buffer_reader.as_mut().unwrap().single_thread_read_ledger_meta_from_pipe()?;
 
-        // Once the stream is finished we can switch back to closed.
-        self.status = RunnerStatus::Closed;
-
         self.load_prepared()?;
+
+        // for single-thread this function is called within the module.
+        self.close_runner()?;
         
         Ok(())
     }
@@ -169,8 +217,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 
         let range = format!("{}/{}", to, to - from + 1);
     
-        let stdout = self.run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"])?
-            .stdout
+        self.run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"])?;
+        let stdout = self.process.as_mut().unwrap().stdout
             .take()
             .unwrap(); // TODO: handle panic
 
@@ -188,6 +236,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
                 Err(error) => return Err(RunnerError::MetaReader(error))
             };
     
+            self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+
             thread::spawn(move || {
                 stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
             })
@@ -207,22 +257,22 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 
         // Creating/resetting the DB and a quick catchup. 
         {
-            let _ = self.run_core_cli(&["new-db"])?
-                        .wait()
-                        .unwrap();
+            self.run_core_cli(&["new-db"])?;
+            self.process.as_mut().unwrap().wait()
+                .unwrap();
 
-            let _ = self.run_core_cli(&["catchup", "current/2"])?
-                        .wait()
-                        .unwrap();
+            let _ = self.run_core_cli(&["catchup", "current/2"]);
+            self.process.as_mut().unwrap().wait()
+                .unwrap();
         }
                     
-        let stdout = self.run_core_cli(
+        self.run_core_cli(
         &[
             "run", 
             "--metadata-output-stream fd:1"
             ]
-        )?
-        .stdout
+        )?;
+        let stdout = self.process.as_mut().unwrap().stdout
             .take()
             .unwrap(); // TODO: handle panic;
 
@@ -240,6 +290,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
                 Err(error) => return Err(RunnerError::MetaReader(error))
             };
     
+            self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+
             thread::spawn(move || {
                 stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
             })
@@ -250,6 +302,20 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 
     fn read_prepared(&self) -> Vec<MetaResult> {
         self.prepared.as_ref().unwrap().clone()
+    }
+
+    fn close_runner(&mut self) -> Result<(), RunnerError> {
+        if self.status == RunnerStatus::Closed {
+            return Err(RunnerError::AlreadyRunning)
+        }
+
+        self.status = RunnerStatus::Closed;
+
+        self.kill_process()?;
+        self.remove_temp_data()?;
+        self.reset_bufreader();
+
+        Ok(())
     }
 
 }

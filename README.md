@@ -1,6 +1,20 @@
 # rs-ingest
 ## Ingestion library written in rust for Futurenet
 
+- [Features](#features)
+  * [Running offline](#running-offline)
+    + [Single-thread mode](#single-thread-mode)
+    + [Multi-thread mode](#multi-thread-mode)
+  * [Running online](#running-online)
+    + [Multi-threaded mode](#multi-threaded-mode)
+- [Try it out](#try-it-out)
+  * [Setup](#setup)
+- [Learn](#learn)
+  * [Hello ledger!](#hello-ledger)
+  * [Invoke host function operations statistics](#invoke-host-function-operations-statistics)
+  * [Event streaming with online mode](#event-streaming-with-online-mode)
+
+
 This package provides primitives for building custom ingestion engines on Futurenet. It's inspired from stellars [`go/ingest`](https://github.com/stellar/go/tree/master/ingest) package.
 
 Often, developers either need ingestion features that are outside of Horizon's scope, or need higher availability for the data. For example, a protocol's frontend might need to ingest events into their own database with a very specific filtering or at a large amount, or they might also need to replay history to see if they missed some events. 
@@ -32,13 +46,20 @@ Running single-thread mode will store every ledger meta.
 ### Multi-thread mode
 Running multi-thread mode is also pretty simple, but returns a `Receiver<MetaResult>` object that receives new ledger meta (already decoded) as soon as it is emitted.
 
-When you run multi-thread mode you will be in charge of how to store the metadata or object derived from it.
+When you run multi-thread mode you will be in charge of how to store the metadata or object derived from it. 
+
+When running multi-thread mode you also need to call the [closing mechanism](#closing-mechanism) manually.
 
 ## Running online
 Running online means being able to sync with Futurenet and close ledgers, thus receive ledger close meta. This mode is more suitable for building using real-time data (for example event streaming).
 
 ### Multi-threaded mode
 Running online can only be done in multi-thread mode. You'll receive a `Receiver<MetaResult>` object which receives ledger close meta as stellar-core closes ledgers.
+
+When running multi-thread mode you also need to call the [closing mechanism](#closing-mechanism) manually.
+
+## Closing mechanism
+`rs-ingest` has a closing mechanism that deletes temporary buckets created during execution and clears the objects. Closing is important before re-initiating an action on `rs-ingest`. When running single-thread mode, the closing mechanism is triggered within `rs-ingest` modules, however when running multi-thread it's the implementor that must decide when to trigger the closing mechanism.
 
 # Try it out
 
@@ -252,6 +273,8 @@ As always, we set up our captive core with the usual configs:
 use ingest::{IngestionConfig, CaptiveCore};
 use stellar_xdr::next::{LedgerCloseMeta, TransactionMeta};
 
+const TARGET_SEQ: u32 = 387468;
+
 pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
@@ -263,6 +286,10 @@ pub fn main() {
     // ...
 }
 ```
+
+Notice that we added a `TARGET_SEQ` constant. That's because in this example we want to showcase how you could call the [closing mechanism](#closing-mechanism) when running online, and to do so we need a ledger sequence at which our program exists and calls the closing mechanism. 
+
+> Note: when you run this example, choose an appropriate target sequence, for example 100 sequences from the current sequence. 
 
 Now, we need to start our core instance in online mode:
 
@@ -289,12 +316,21 @@ pub fn main() {
         let ledger = result.ledger_close_meta.unwrap().ledger_close_meta;
         match &ledger {
             LedgerCloseMeta::V1(v1) => {
+
+                let ledger_seq = v1.ledger_header.header.ledger_seq;
+                if ledger_seq == TARGET_SEQ {
+                    println!("Reached target ledger, closing");
+                    captive_core.close_runner_process().unwrap();
+
+                    std::process::exit(0)
+                }
+
                 for tx_processing in v1.tx_processing.iter() {
                     match &tx_processing.tx_apply_processing {
                         TransactionMeta::V3(meta) => {
                             if let Some(soroban) = &meta.soroban_meta {
                                 if !soroban.events.is_empty() {
-                                    println!("Events for ledger {}: \n{}\n",  v1.ledger_header.header.ledger_seq, serde_json::to_string_pretty(&soroban.events).unwrap())
+                                    println!("Events for ledger {}: \n{}\n",  ledger_seq, serde_json::to_string_pretty(&soroban.events).unwrap())
                                 }
                             }
                         },
@@ -309,5 +345,18 @@ pub fn main() {
 ```
 
 As you can see, we're just destructuring every `MetaResult` we receive and print out, if any, the events on the processed ledger.
+
+Notice this code block:
+
+```rust
+if ledger_seq == TARGET_SEQ {
+    println!("Reached target ledger, closing");
+    captive_core.close_runner_process().unwrap();
+
+    std::process::exit(0)
+}
+```
+
+Where we trigger the closing mechanism and exit successfully.
 
 This might be a good starting point to start working on an indexer for you protocol's contract events.

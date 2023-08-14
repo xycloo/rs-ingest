@@ -2,7 +2,7 @@ use std::{ops::RangeBounds, sync::mpsc::Receiver};
 
 use stellar_xdr::{next::{LedgerCloseMeta, LedgerCloseMetaV1}};
 
-use crate::{StellarCoreRunner, IngestionConfig, StellarCoreRunnerPublic, RunnerError, toml::generate_predefined_cfg, MetaResult};
+use crate::{StellarCoreRunner, IngestionConfig, StellarCoreRunnerPublic, RunnerError, toml::generate_predefined_cfg, MetaResult, BufferedLedgerMetaReaderMode};
 
 pub struct ContextPath(pub String);
 
@@ -34,7 +34,7 @@ impl Range {
     }
 }
 
-#[derive(thiserror::Error, Debug, Clone )]
+#[derive(thiserror::Error, Debug)]
 
 pub enum Error {
     #[error("error while running core: {0}")]
@@ -42,6 +42,9 @@ pub enum Error {
 
     #[error("requested ledger was not found in prepared ledgers")]
     LedgerNotFound,
+
+    #[error("called closing mechanism, but core is running single-thread mode")]
+    CloseOnSingleThread
 }
 
 pub struct CaptiveCore {
@@ -77,6 +80,25 @@ impl CaptiveCore {
         };
 
         Ok(())
+    }
+
+    pub fn prepare_ledgers_multi_thread(&mut self, range: &Range) -> Result<Receiver<MetaResult>, Error> {
+        let receiver = match range {
+            Range::Bounded(range) => {
+                self.offline_replay_multi_thread(range.0, range.1)?
+            }
+        };
+
+        Ok(receiver)
+    }
+
+    // note: should only be used for multithread mode.
+    pub fn close_runner_process(&mut self) -> Result<(), Error> {
+        if *(self.stellar_core_runner.thread_mode()) == BufferedLedgerMetaReaderMode::SingleThread {
+            return Err(Error::CloseOnSingleThread)
+        }
+        
+        Ok(self.stellar_core_runner.close_runner()?)
     }
 
     pub fn get_ledger(&self, sequence: u32) -> Result<LedgerCloseMeta, Error> {

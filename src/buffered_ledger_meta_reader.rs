@@ -28,7 +28,10 @@ pub enum BufReaderError {
     WrongModeMultiThread,
 
     #[error("wants to use multi-threaded mode features but is single-thread mode")]
-    WrongModeSingleThread
+    WrongModeSingleThread,
+
+    #[error("cloned bufreaders must only be used for their thread mode")]
+    UsedClonedBufreader
 }
 
 #[derive(Clone)]
@@ -66,7 +69,7 @@ pub struct MetaResult {
     pub err: Option<BufReaderError>
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum BufferedLedgerMetaReaderMode {
     SingleThread,
     MultiThread,
@@ -74,9 +77,16 @@ pub enum BufferedLedgerMetaReaderMode {
 
 pub struct BufferedLedgerMetaReader {
     mode: BufferedLedgerMetaReaderMode,
-    reader: io::BufReader<Box<dyn Read + Send>>,
+    reader: Option<io::BufReader<Box<dyn Read + Send>>>,
     cached: Option<Arc<Mutex<Vec<MetaResult>>>>,
     transmitter: Option<std::sync::mpsc::Sender<MetaResult>>,
+    cloned: bool
+}
+
+impl Clone for BufferedLedgerMetaReader {
+    fn clone(&self) -> Self {
+        Self { mode: self.mode.clone(), reader: None, cached: None, transmitter: None, cloned: true }
+    }
 }
 
 impl BufferedLedgerMetaReader {
@@ -102,11 +112,16 @@ impl BufferedLedgerMetaReader {
         Ok(
             Self { 
                 mode,
-                reader, 
+                reader: Some(reader), 
                 cached,
                 transmitter, 
+                cloned: false
             }
         )
+    }
+
+    pub fn thread_mode(&self) -> &BufferedLedgerMetaReaderMode {
+        &self.mode
     }
 }
 
@@ -131,7 +146,11 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
             return Err(BufReaderError::WrongModeMultiThread)
         }
 
-        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.reader) {
+        if self.cloned {
+            return Err(BufReaderError::UsedClonedBufreader)
+        }
+
+        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.reader.as_mut().unwrap()) {
             let meta_obj = match t {
                 Ok(ledger_close_meta) => MetaResult {
                     ledger_close_meta: Some(ledger_close_meta.into()),
@@ -158,6 +177,10 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
             return Err(BufReaderError::WrongModeMultiThread)
         }
 
+        if self.cloned {
+            return Err(BufReaderError::UsedClonedBufreader)
+        }
+
         // The blow unwrap on cached is safe since initialization
         // prevents initializing in the wrong mode and all
         // BufferedLedgerMetaReader fields are private.
@@ -168,6 +191,10 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
     fn clear_buffered(&mut self) -> Result<(), BufReaderError> {
         if self.mode != BufferedLedgerMetaReaderMode::SingleThread {
             return Err(BufReaderError::WrongModeMultiThread)
+        }
+
+        if self.cloned {
+            return Err(BufReaderError::UsedClonedBufreader)
         }
 
         self.cached = Some(Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE))));
@@ -183,7 +210,11 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
             return Err(BufReaderError::WrongModeSingleThread)
         }
 
-        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.reader) {
+        if self.cloned {
+            return Err(BufReaderError::UsedClonedBufreader)
+        }
+
+        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.reader.as_mut().unwrap()) {
             let meta_obj = match t {
                 Ok(ledger_close_meta) => MetaResult {
                     ledger_close_meta: Some(ledger_close_meta.into()),
