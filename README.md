@@ -237,7 +237,6 @@ pub fn main() {
     println!("Non invoke host function operations: {all_other_ops}");
     println!("Invoke host function operations: {invoke_host_ops}");
 
-    print!("Ratio: {}", all_other_ops as f32 / invoke_host_ops as f32);
 }
 ```
 

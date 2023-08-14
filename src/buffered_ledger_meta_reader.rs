@@ -1,9 +1,6 @@
 use std::io::{self, Read};
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncBufReadExt, BufReader as BufReaderAsync, AsyncRead};
-use tokio::sync::Mutex as MutexAsync;
-use serde::Serialize;
-use stellar_xdr::next::{TypeVariant, LedgerCloseMeta, LedgerCloseMetaV1, Type};
+use stellar_xdr::next::{TypeVariant, LedgerCloseMeta, Type};
 
 // from the stellar/go/ingestion lib
 const META_PIPE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
