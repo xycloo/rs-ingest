@@ -9,6 +9,7 @@
     + [Multi-thread mode](#multi-thread-mode)
   * [Running online](#running-online)
     + [Multi-threaded mode](#multi-threaded-mode)
+  * [Closing mechanism](#closing-mechanism)
 - [Try it out](#try-it-out)
   * [Setup](#setup)
 - [Learn](#learn)
