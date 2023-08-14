@@ -1,3 +1,5 @@
+[![Crates.io](https://img.shields.io/crates/v/cargo-readme.svg)](https://crates.io/crates/ingest)
+
 # rs-ingest
 ## Ingestion library written in rust for Futurenet
 
@@ -65,7 +67,13 @@ When running multi-thread mode you also need to call the [closing mechanism](#cl
 
 The crate is a WIP, but you can already start playing around the features it currently offers. For example, check out the [examples](https://github.com/xycloo/rs-soroban-cortex/tree/main/ingest/src/bin).
 
-## Setup
+The crate is avaiable on crates.io:
+
+```rust
+ingest = "0.0.1"
+```
+
+### stellar-core setup
 
 Before using the crate, you need the [`stellar-core`](https://github.com/stellar/stellar-core) executable. To install the currently futurenet-compatible core:
 
