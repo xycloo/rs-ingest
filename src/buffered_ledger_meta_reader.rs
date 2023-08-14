@@ -1,4 +1,5 @@
 use std::io::{self, Read};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use stellar_xdr::next::{TypeVariant, LedgerCloseMeta, Type};
 
@@ -6,33 +7,42 @@ use stellar_xdr::next::{TypeVariant, LedgerCloseMeta, Type};
 const META_PIPE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
 const LEDGER_READ_AHEAD_BUFFER_SIZE: usize = 20;
 
+/// Enum to represent different types of errors related to `BufReader` operations.
 #[derive(thiserror::Error, Debug, Clone )]
-
 pub enum BufReaderError {
-    #[error("unknown type {0}, choose one of {1:?}")]
+    /// An unknown type was encountered. Choose from the provided list of valid types.
+    #[error("Unknown type {0}, choose one of {1:?}")]
     UnknownType(String, &'static [&'static str]),
 
-    #[error("error decoding XDR")]
+    /// Error encountered while decoding XDR data.
+    #[error("Error decoding XDR")]
     ReadXdrNext,
 
-    #[error("wants to run single-threaded mode but specified transmitter")]
+    /// Attempted to run single-threaded mode with a specified transmitter, which is unused.
+    #[error("Wants to run single-threaded mode but specified transmitter")]
     UnusedTransmitter,
 
-    #[error("wants to run multi-threaded mode but no transmitter specified")]
+    /// Attempted to run multi-threaded mode without specifying a transmitter.
+    #[error("Wants to run multi-threaded mode but no transmitter specified")]
     MissingTransmitter,
 
-    #[error("wants to use single-threaded mode features but is multi-thread mode")]
+    /// Attempted to use single-threaded mode features while in multi-threaded mode.
+    #[error("Wants to use single-threaded mode features but is multi-thread mode")]
     WrongModeMultiThread,
 
-    #[error("wants to use multi-threaded mode features but is single-thread mode")]
+    /// Attempted to use multi-threaded mode features while in single-threaded mode.
+    #[error("Wants to use multi-threaded mode features but is single-thread mode")]
     WrongModeSingleThread,
 
-    #[error("cloned bufreaders must only be used for their thread mode")]
-    UsedClonedBufreader
+    /// Cloned `BufReaders` must only be used for their associated thread mode.
+    #[error("Cloned BufReaders must only be used for their thread mode")]
+    UsedClonedBufreader,
 }
 
+/// Wrapper struct to hold the `LedgerCloseMeta` data.
 #[derive(Clone)]
 pub struct LedgerCloseMetaWrapper {
+    /// The ledger close metadata associated with this wrapper.
     pub ledger_close_meta: LedgerCloseMeta
 }
 
@@ -60,24 +70,51 @@ impl From<Type> for LedgerCloseMetaWrapper {
     }
 }
 
+/// Represents the result of processing ledger metadata.
 #[derive(Clone)]
 pub struct MetaResult {
+    /// The ledger close metadata associated with this result.
     pub ledger_close_meta: Option<LedgerCloseMetaWrapper>,
-    pub err: Option<BufReaderError>
+
+    /// An optional error encountered during processing.
+    pub err: Option<BufReaderError>,
 }
 
+/// Enum to indicate the mode of operation for `BufferedLedgerMetaReader`.
 #[derive(PartialEq, Eq, Clone)]
 pub enum BufferedLedgerMetaReaderMode {
+    /// The reader operates in single-thread mode.
     SingleThread,
+
+    /// The reader operates in multi-thread mode.
     MultiThread,
 }
 
+/// Struct for reading buffered ledger metadata.
 pub struct BufferedLedgerMetaReader {
+    /// The mode of operation for the reader.
     mode: BufferedLedgerMetaReaderMode,
+
+    /// An optional buffered reader for reading data.
+    /// This value is set as an option to allow cloning
+    /// a `BufferedLedgerMetaReader` for it to be used
+    /// to retrieve the mode.
     reader: Option<io::BufReader<Box<dyn Read + Send>>>,
+
+    /// An optional cached vector of metadata results.
+    /// This will only be used when running offline.
     cached: Option<Arc<Mutex<Vec<MetaResult>>>>,
-    transmitter: Option<std::sync::mpsc::Sender<MetaResult>>,
-    cloned: bool
+
+    /// An optional transmitter for sending metadata results.
+    /// This will only be used when running online
+    transmitter: Option<Sender<MetaResult>>,
+
+    /// Indicates whether the reader has been cloned.
+    /// A cloned reader is just a lightweight placeholder
+    /// reader which is only used to retrieve the mode.
+    /// 
+    /// Cloned readers are only used in multi-thread mode.
+    cloned: bool,
 }
 
 impl Clone for BufferedLedgerMetaReader {
@@ -87,6 +124,17 @@ impl Clone for BufferedLedgerMetaReader {
 }
 
 impl BufferedLedgerMetaReader {
+    /// Creates a new `BufferedLedgerMetaReader` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `mode` - The mode of operation for the reader.
+    /// * `reader` - The boxed reader used for reading data.
+    /// * `transmitter` - An optional transmitter for sending metadata results in multi-thread mode.
+    ///
+    /// # Returns
+    ///
+    /// Returns a new `BufferedLedgerMetaReader` instance if successful, or a `BufReaderError` if an issue occurs.
     pub fn new(mode: BufferedLedgerMetaReaderMode, reader: Box<dyn Read + Send>, transmitter: Option<std::sync::mpsc::Sender<MetaResult>>) -> Result<Self, BufReaderError> {
         let reader = io::BufReader::with_capacity(META_PIPE_BUFFER_SIZE, reader);
         let (cached, transmitter) = match mode {
@@ -117,22 +165,48 @@ impl BufferedLedgerMetaReader {
         )
     }
 
+    /// Retrieves the thread mode of the `BufferedLedgerMetaReader`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the `BufferedLedgerMetaReaderMode` indicating the current thread mode.
     pub fn thread_mode(&self) -> &BufferedLedgerMetaReaderMode {
         &self.mode
     }
 }
 
+/// Trait for reading ledger metadata in single-thread mode from a buffered source.
 pub trait SingleThreadBufferedLedgerMetaReader {
 
+    /// Reads ledger metadata from the buffered source in single-thread mode.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if reading is successful, or a `BufReaderError` if an issue occurs.
     fn single_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError>;
     
+    /// Reads and retrieves cached ledger metadata in single-thread mode.
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `MetaResult` if retrieval is successful, or a `BufReaderError` if an issue occurs.
     fn read_meta(&self) -> Result<Vec<MetaResult>, BufReaderError>;
 
+    /// Clears the cached buffered ledger metadata in single-thread mode.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if clearing is successful, or a `BufReaderError` if an issue occurs.
     fn clear_buffered(&mut self) -> Result<(), BufReaderError>;
 }
 
+/// Trait for reading ledger metadata in multi-thread mode from a buffered source.
 pub trait MultiThreadBufferedLedgerMetaReader {
-
+    /// Reads ledger metadata from the buffered source in multi-thread mode.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if reading is successful, or a `BufReaderError` if an issue occurs.
     fn multi_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError>;    
 }
 
@@ -154,7 +228,7 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
                     err: None
                 },
 
-                Err(error) => MetaResult { 
+                Err(_) => MetaResult { 
                     ledger_close_meta: None, 
                     err: Some(BufReaderError::ReadXdrNext)
                 }
@@ -218,7 +292,7 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
                     err: None
                 },
 
-                Err(error) => MetaResult { 
+                Err(_) => MetaResult { 
                     ledger_close_meta: None, 
                     err: Some(BufReaderError::ReadXdrNext)
                 }

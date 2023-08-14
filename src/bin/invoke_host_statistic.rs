@@ -1,5 +1,5 @@
 use ingest::{IngestionConfig, CaptiveCore, Range, BoundedRange};
-use stellar_xdr::next::{LedgerCloseMeta, TransactionPhase, TxSetComponent, TransactionEnvelope, OperationBody, VecM, Operation};
+use stellar_xdr::next::{LedgerCloseMeta, TransactionPhase, TxSetComponent, TransactionEnvelope, OperationBody, Operation};
 
 pub fn main() {
     let config = IngestionConfig {

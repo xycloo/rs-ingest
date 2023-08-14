@@ -1,15 +1,25 @@
-use std::{process::{Command, Child}, fmt::format, io::{BufReader, self}, thread::{self, JoinHandle}, sync::{Arc, Mutex, mpsc::Receiver}};
-use crate::{IngestionConfig, BufferedLedgerMetaReader, BufReaderError, MetaResult, SingleThreadBufferedLedgerMetaReader, BufferedLedgerMetaReaderMode, MultiThreadBufferedLedgerMetaReader};
-use std::io::{BufRead, Error, ErrorKind};
+use std::{process::{Command, Child}, io::{BufReader, self}, thread, sync::mpsc::Receiver};
+use crate::{IngestionConfig, BufferedLedgerMetaReader, BufReaderError, MetaResult, 
+    SingleThreadBufferedLedgerMetaReader, BufferedLedgerMetaReaderMode, 
+    MultiThreadBufferedLedgerMetaReader};
 
 
+    
+/// Represents the status of a core runner.
 #[derive(PartialEq, Eq)]
 pub enum RunnerStatus {
+    /// The runner is actively processing tasks while disconnected from the network.
     RunningOffline,
+
+    /// The runner is actively processing tasks and connected to the network.
     RunningOnline,
-    Closed
+
+    /// The runner has been closed and is no longer processing tasks.
+    Closed,
 }
 
+
+/// Core runner object.
 pub struct StellarCoreRunner {
     //pub configs: IngestionConfig,
 
@@ -27,25 +37,33 @@ pub struct StellarCoreRunner {
 
 }
 
+
+/// Represents the potential errors that can occur during runner operations.
 #[derive(thiserror::Error, Debug)]
 pub enum RunnerError {
-    #[error("instance of core already running")]
+    /// An instance of the core is already running.
+    #[error("Instance of core already running")]
     AlreadyRunning,
-    
-    #[error("error running CLI command")]
+
+    /// Error encountered while running a CLI command.
+    #[error("Error running CLI command")]
     CliExec,
 
-    #[error("error in reading ledger metadata {0}")]
+    /// Error encountered while reading ledger metadata.
+    #[error("Error in reading ledger metadata: {0}")]
     MetaReader(#[from] BufReaderError),
 
-    #[error("instance of core already closed")]
+    /// The instance of the core has already been closed.
+    #[error("Instance of core already closed")]
     AlreadyClosed,
 
-    #[error("process error {0}")]
-    Process(#[from] std::io::Error),
+    /// A process-related error occurred.
+    #[error("Process error: {0}")]
+    Process(#[from] io::Error),
 
+    /// An attempt was made to kill a process, but no process was found.
     #[error("Asked to kill process, but no process was found")]
-    ProcessNotFound
+    ProcessNotFound,
 }
 
 
@@ -110,28 +128,40 @@ impl StellarCoreRunner {
         }
     }
 
-    pub fn status(&self) -> &RunnerStatus {
+    // This function is not yet used anywhere in the codebase but might be in the future.
+    #[allow(dead_code)]
+    pub(crate) fn status(&self) -> &RunnerStatus {
         &self.status
     }
 
-    pub fn thread_mode(&self) -> &BufferedLedgerMetaReaderMode {
+    pub(crate) fn thread_mode(&self) -> &BufferedLedgerMetaReaderMode {
         self.ledger_buffer_reader.as_ref().unwrap().thread_mode()
     }
 }
 
+/// Public interface for interacting with the Stellar Core runner.
+/// These actions should not be directory called by the implementor.
 pub trait StellarCoreRunnerPublic {
+    /// Creates a new instance of the runner with the provided configuration.
     fn new(config: IngestionConfig) -> Self;
 
+    /// Performs catchup using a single thread, processing data from the specified range.
     fn catchup_single_thread(&mut self, from: u32, to: u32) -> Result<(), RunnerError>;
 
+    /// Performs catchup using multiple threads, processing data from the specified range.
+    /// Returns a channel receiver for receiving metadata results.
     fn catchup_multi_thread(&mut self, from: u32, to: u32) -> Result<Receiver<MetaResult>, RunnerError>;
 
+    /// Starts the runner and returns a channel receiver for receiving metadata results.
     fn run(&mut self) -> Result<Receiver<MetaResult>, RunnerError>;
 
+    /// Reads the prepared metadata results from the runner.
     fn read_prepared(&self) -> Vec<MetaResult>;
 
+    /// Closes the runner, freeing any associated resources.
     fn close_runner(&mut self) -> Result<(), RunnerError>;
 }
+
 
 impl StellarCoreRunnerPublic for StellarCoreRunner {
     fn new(config: IngestionConfig) -> Self {
@@ -151,32 +181,6 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         }
 
         self.status = RunnerStatus::RunningOffline;
-
-        // Note the below info doesn't apply to catchup.
-        // This whole block exists to make sure the starting
-        // point for the catchup is correct.
-        //
-        // Note: currently this process is very unoptimized
-        // i.e it always creates a new db and catches up.
-        //
-        // TODO: read offline info and decide whether the small
-        // catchup and db creation are needed.    
-        /*{
-            let _ = self.run_core_cli(&["new-db"])?
-                    .wait()
-                    .unwrap();
-
-    
-            if from > 2 {
-                let _ = self.run_core_cli(&["catchup", &format!("{}/0", from-1)])?
-                    .wait()
-                    .unwrap();
-            } else {
-                let _ = self.run_core_cli(&["catchup", "2/0"])?
-                    .wait()
-                    .unwrap(); // TODO: handle panic
-            }
-        }*/
 
         let range = format!("{}/{}", to, to - from + 1);
     
@@ -226,7 +230,9 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         
         let (transmitter, receiver) = std::sync::mpsc::channel();
         
-        let handle = {
+        // TODO: maybe pass the handle object in the result.
+        // might only be needed for running multithreaded offline.
+        let _handle = {
             let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
                 BufferedLedgerMetaReaderMode::MultiThread, 
                 Box::new(reader), 
@@ -256,6 +262,9 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         self.status = RunnerStatus::RunningOnline;
 
         // Creating/resetting the DB and a quick catchup. 
+        // TODO: optimize this process by checking what's the
+        // LCL on the existing database instead of always creating
+        // a new one and catching up.
         {
             self.run_core_cli(&["new-db"])?;
             self.process.as_mut().unwrap().wait()
@@ -280,7 +289,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 
         let (transmitter, receiver) = std::sync::mpsc::channel();
         
-        let handle = {
+        // This handle shouldn't be needed.
+        let _handle = {
             let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
                 BufferedLedgerMetaReaderMode::MultiThread, 
                 Box::new(reader), 
