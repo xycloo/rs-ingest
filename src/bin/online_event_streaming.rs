@@ -1,4 +1,4 @@
-use ingest::{IngestionConfig, CaptiveCore};
+use ingest::{IngestionConfig, CaptiveCore, SupportedNetwork};
 use stellar_xdr::next::{LedgerCloseMeta, TransactionMeta};
 
 const TARGET_SEQ: u32 = 387468;
@@ -7,6 +7,7 @@ pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
         context_path: Default::default(),
+        network: SupportedNetwork::Futurenet
     };
 
     let mut captive_core = CaptiveCore::new(config);

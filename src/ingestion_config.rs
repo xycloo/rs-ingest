@@ -7,6 +7,15 @@ impl Default for ContextPath {
     }
 }
 
+/// Enum describing the network to run stellar-core on.
+#[derive(Copy, Clone)]
+pub enum SupportedNetwork {
+    /// Ingest on futurenet.
+    Futurenet,
+
+    /// Ingest on pubnet.
+    Pubnet
+}
 
 /// Configuration settings
 pub struct IngestionConfig {
@@ -18,4 +27,7 @@ pub struct IngestionConfig {
     /// The context directory is where temporary buckets
     /// database, and toml configuration are stored.
     pub context_path: ContextPath,
+
+    /// Network to run stellar-core on.
+    pub network: SupportedNetwork
 }

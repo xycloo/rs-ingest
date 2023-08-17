@@ -55,7 +55,7 @@ impl CaptiveCore {
     /// Creates a new CaptiveCore instance
     pub fn new(config: IngestionConfig) -> Self {
         // generate configs in path
-        generate_predefined_cfg(&config.context_path.0);
+        generate_predefined_cfg(&config.context_path.0, config.network);
 
         Self { stellar_core_runner: StellarCoreRunner::new(config) }
     }
@@ -146,7 +146,8 @@ impl CaptiveCore {
                 let meta = wrapper.ledger_close_meta;
                 let ledger_seq = match meta.clone() {
                     LedgerCloseMeta::V1(v1) => v1.ledger_header.header.ledger_seq,
-                    _ => unreachable!()
+                    LedgerCloseMeta::V0(v0) => v0.ledger_header.header.ledger_seq,
+                    LedgerCloseMeta::V2(v2) => v2.ledger_header.header.ledger_seq,
                 };
 
                 if ledger_seq == sequence {

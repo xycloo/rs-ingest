@@ -1,10 +1,11 @@
-use ingest::{IngestionConfig, CaptiveCore, Range, BoundedRange};
+use ingest::{IngestionConfig, CaptiveCore, Range, BoundedRange, SupportedNetwork};
 use stellar_xdr::next::{LedgerCloseMeta, TransactionPhase, TxSetComponent, TransactionEnvelope, OperationBody, Operation};
 
 pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
         context_path: Default::default(),
+        network: SupportedNetwork::Futurenet
     };
 
     let mut captive_core = CaptiveCore::new(config);

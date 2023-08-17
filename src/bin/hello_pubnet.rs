@@ -1,3 +1,7 @@
+//! This example is the copy of ./hello.rs but running on
+//! stellar's public network. The network choice is specified
+//! in the ingestion configs. 
+
 use ingest::{IngestionConfig, CaptiveCore, Range, BoundedRange, SupportedNetwork};
 use stellar_xdr::next::LedgerCloseMeta;
 
@@ -5,7 +9,7 @@ pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
         context_path: Default::default(),
-        network: SupportedNetwork::Futurenet
+        network: SupportedNetwork::Pubnet
     };
 
     let mut captive_core = CaptiveCore::new(config);
