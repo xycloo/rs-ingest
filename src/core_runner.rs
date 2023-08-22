@@ -286,7 +286,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
                             start..=end
                         })
                         .collect();
-                    println!("{:?}", ranges);
+                    
                     thread::spawn(move || {
                         for range in ranges {
                             let range =

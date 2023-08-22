@@ -42,7 +42,7 @@ pub struct IngestionConfig {
     /// amount in databases for large catchups.
     /// 
     /// This option will help to stagger large catchup
-    /// data, potentially preventing large memory usage.
+    /// data, enabling for checkpoints.
     /// 
     /// This option is not a good approach in most
     /// cases as it will slow down the catchup process, 
