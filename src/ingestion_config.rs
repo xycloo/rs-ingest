@@ -39,6 +39,15 @@ pub struct IngestionConfig {
 
     /// Option to split multi-thread mode catchups
     /// to produce staggered and help with write
-    /// amount in databases for large catchups
+    /// amount in databases for large catchups.
+    /// 
+    /// This option will help to stagger large catchup
+    /// data, potentially preventing large memory usage.
+    /// 
+    /// This option is not a good approach in most
+    /// cases as it will slow down the catchup process, 
+    /// make sure you understand what it does
+    /// and try out bounded buffers or
+    /// handling large catchup data yourself first.
     pub staggered: Option<u32>,
 }
