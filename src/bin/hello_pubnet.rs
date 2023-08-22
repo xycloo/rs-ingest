@@ -9,7 +9,8 @@ pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
         context_path: Default::default(),
-        network: SupportedNetwork::Pubnet
+        network: SupportedNetwork::Pubnet,
+        bounded_buffer_size: None
     };
 
     let mut captive_core = CaptiveCore::new(config);

@@ -7,14 +7,15 @@ pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
         context_path: Default::default(),
-        network: SupportedNetwork::Pubnet
+        network: SupportedNetwork::Pubnet,
+        bounded_buffer_size: None
     };
 
     let mut captive_core = CaptiveCore::new(config);
 
     let receiver = captive_core.start_online_no_range().unwrap();
 
-    println!("Printing tx sets for every transaction");
+    println!("Printing tx sets");
     for result in receiver.iter() {
         let ledger = result.ledger_close_meta.unwrap().ledger_close_meta;
         match &ledger {

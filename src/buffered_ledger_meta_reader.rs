@@ -1,5 +1,5 @@
 use std::io::{self, Read};
-use std::sync::mpsc::{Sender, SendError};
+use std::sync::mpsc::{Sender, SendError, SyncSender};
 use std::sync::{Arc, Mutex};
 use stellar_xdr::next::{TypeVariant, LedgerCloseMeta, Type};
 
@@ -113,6 +113,9 @@ pub struct BufferedLedgerMetaReader {
     /// This will only be used when running online
     transmitter: Option<Sender<Box<MetaResult>>>,
 
+    /// An optional sync transmitter.
+    sync_transmitter: Option<SyncSender<Box<MetaResult>>>,
+
     /// Indicates whether the reader has been cloned.
     /// A cloned reader is just a lightweight placeholder
     /// reader which is only used to retrieve the mode.
@@ -123,7 +126,7 @@ pub struct BufferedLedgerMetaReader {
 
 impl Clone for BufferedLedgerMetaReader {
     fn clone(&self) -> Self {
-        Self { mode: self.mode.clone(), reader: None, cached: None, transmitter: None, cloned: true }
+        Self { mode: self.mode.clone(), reader: None, cached: None, transmitter: None, sync_transmitter: None, cloned: true }
     }
 }
 
@@ -139,23 +142,40 @@ impl BufferedLedgerMetaReader {
     /// # Returns
     ///
     /// Returns a new `BufferedLedgerMetaReader` instance if successful, or a `BufReaderError` if an issue occurs.
-    pub fn new(mode: BufferedLedgerMetaReaderMode, reader: Box<dyn Read + Send>, transmitter: Option<std::sync::mpsc::Sender<Box<MetaResult>>>) -> Result<Self, BufReaderError> {
+    pub fn new(mode: BufferedLedgerMetaReaderMode, reader: Box<dyn Read + Send>, transmitter: Option<std::sync::mpsc::Sender<Box<MetaResult>>>, sync_transmitter: Option<SyncSender<Box<MetaResult>>>) -> Result<Self, BufReaderError> {
         let reader = io::BufReader::with_capacity(META_PIPE_BUFFER_SIZE, reader);
-        let (cached, transmitter) = match mode {
-            BufferedLedgerMetaReaderMode::SingleThread => {
-                if transmitter.is_some() {
-                    return Err(BufReaderError::UnusedTransmitter);
+        
+        // perform some safety checks and assing
+        // chached.
+        let cached = {
+            let tx_is = transmitter.is_some();
+            let sync_tx_is = sync_transmitter.is_some();
+
+            // we make sure that we either use sync tx or tx.
+            if tx_is && sync_tx_is {
+                return Err(BufReaderError::MissingTransmitter)
+            }
+
+            match mode {
+                BufferedLedgerMetaReaderMode::SingleThread => {
+                    // we ensure that transmitters are not present in
+                    // single-thread mode.
+                    if tx_is || sync_tx_is {
+                        return Err(BufReaderError::UnusedTransmitter)
+                    }
+
+                    Some(Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE))))
                 }
 
-                (Some(Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE)))), None)
-            },
-            BufferedLedgerMetaReaderMode::MultiThread => {
-                if transmitter.is_none() {
-                    return Err(BufReaderError::MissingTransmitter);
+                BufferedLedgerMetaReaderMode::MultiThread => {
+                    // make sure that at least one transmittor is some
+                    // when running multi-thread mode.
+                    if !tx_is && !tx_is {
+                        return Err(BufReaderError::MissingTransmitter)
+                    }
+                    None
                 }
-
-                (None, transmitter)
-            },
+            }
         };
 
         Ok(
@@ -164,6 +184,7 @@ impl BufferedLedgerMetaReader {
                 reader: Some(reader), 
                 cached,
                 transmitter, 
+                sync_transmitter,
                 cloned: false
             }
         )
@@ -241,7 +262,7 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
                 }
             };
             
-            // The blow unwrap on cached is safe since initialization
+            // The below unwrap on cached is safe since initialization
             // prevents initializing in the wrong mode and all
             // BufferedLedgerMetaReader fields are private.
             self.cached.as_ref().unwrap().lock().unwrap().push(meta_obj);
@@ -259,7 +280,7 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
             return Err(BufReaderError::UsedClonedBufreader)
         }
 
-        // The blow unwrap on cached is safe since initialization
+        // The below unwrap on cached is safe since initialization
         // prevents initializing in the wrong mode and all
         // BufferedLedgerMetaReader fields are private.
         let locked = self.cached.as_ref().unwrap().lock().unwrap();
@@ -306,12 +327,16 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
                     }
                 }
             };
-            
-            // The blow unwrap on the transmitter is safe since
-            // initialization prevents initializing in the wrong mode
-            // and all BufferedLedgerMetaReader fields are private.
 
-            self.transmitter.as_ref().unwrap().send(Box::new(meta_obj))?
+            if let Some(tx) = self.sync_transmitter.as_ref() {
+                tx.send(Box::new(meta_obj))?
+            } else {
+                // The below unwrap on the transmitter is safe since
+                // initialization prevents initializing in the wrong mode
+                // and all BufferedLedgerMetaReader fields are private.
+
+                self.transmitter.as_ref().unwrap().send(Box::new(meta_obj))?
+            }
         }
 
         Ok(())

@@ -33,7 +33,9 @@ pub struct StellarCoreRunner {
 
     prepared: Option<Vec<MetaResult>>,
 
-    process: Option<Child>
+    process: Option<Child>,
+
+    bounded_buffer_size: Option<usize>
 
 }
 
@@ -172,6 +174,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
             ledger_buffer_reader: None,
             prepared: None,
             process: None,
+            bounded_buffer_size: config.bounded_buffer_size
         }
     }
 
@@ -196,7 +199,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         //.filter_map(|line| line.ok())
         //.for_each(|line| println!("{}", line));
 
-        let ledger_buffer_reader = match BufferedLedgerMetaReader::new(BufferedLedgerMetaReaderMode::SingleThread, Box::new(reader), None) {
+        let ledger_buffer_reader = match BufferedLedgerMetaReader::new(BufferedLedgerMetaReaderMode::SingleThread, Box::new(reader), None, None) {
             Ok(reader) => reader,
             Err(error) => return Err(RunnerError::MetaReader(error))
         };
@@ -227,29 +230,52 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
             .unwrap(); // TODO: handle panic
 
         let reader = BufReader::new(stdout);
+
+        if let Some(bound) = self.bounded_buffer_size {
+            let (transmitter, receiver) = std::sync::mpsc::sync_channel(bound);
+            let _handle = {
+                let mut stateless_ledger_buffer_reader = 
+                    match BufferedLedgerMetaReader::new(
+                        BufferedLedgerMetaReaderMode::MultiThread, 
+                        Box::new(reader), 
+                        None,
+                        Some(transmitter)
+                    ) {
+                        Ok(reader) => reader,
+                        Err(error) => return Err(RunnerError::MetaReader(error))
+                    };
         
-        let (transmitter, receiver) = std::sync::mpsc::channel();
-        
-        // TODO: maybe pass the handle object in the result.
-        // might only be needed for running multithreaded offline.
-        let _handle = {
-            let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
-                BufferedLedgerMetaReaderMode::MultiThread, 
-                Box::new(reader), 
-                Some(transmitter)
-            ) {
-                Ok(reader) => reader,
-                Err(error) => return Err(RunnerError::MetaReader(error))
-            };
+                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
     
-            self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+                thread::spawn(move || {
+                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+                })
+            };
 
-            thread::spawn(move || {
-                stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
-            })
-        };
+            Ok(receiver)
+        } else {
+            let (transmitter, receiver) = std::sync::mpsc::channel();
+            let _handle = {
+                let mut stateless_ledger_buffer_reader = 
+                    match BufferedLedgerMetaReader::new(
+                        BufferedLedgerMetaReaderMode::MultiThread, 
+                        Box::new(reader), 
+                        Some(transmitter),
+                        None
+                    ) {
+                        Ok(reader) => reader,
+                        Err(error) => return Err(RunnerError::MetaReader(error))
+                    };
+        
+                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+    
+                thread::spawn(move || {
+                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+                })
+            };
 
-        Ok(receiver)
+            Ok(receiver)
+        }
     }
 
 
@@ -287,27 +313,51 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 
         let reader = BufReader::new(stdout);
 
-        let (transmitter, receiver) = std::sync::mpsc::channel();
+        if let Some(bound) = self.bounded_buffer_size {
+            let (transmitter, receiver) = std::sync::mpsc::sync_channel(bound);
+            let _handle = {
+                let mut stateless_ledger_buffer_reader = 
+                    match BufferedLedgerMetaReader::new(
+                        BufferedLedgerMetaReaderMode::MultiThread, 
+                        Box::new(reader), 
+                        None,
+                        Some(transmitter)
+                    ) {
+                        Ok(reader) => reader,
+                        Err(error) => return Err(RunnerError::MetaReader(error))
+                    };
         
-        // This handle shouldn't be needed.
-        let _handle = {
-            let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
-                BufferedLedgerMetaReaderMode::MultiThread, 
-                Box::new(reader), 
-                Some(transmitter)
-            ) {
-                Ok(reader) => reader,
-                Err(error) => return Err(RunnerError::MetaReader(error))
-            };
+                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
     
-            self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+                thread::spawn(move || {
+                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+                })
+            };
 
-            thread::spawn(move || {
-                stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
-            })
-        };
+            Ok(receiver)
+        } else {
+            let (transmitter, receiver) = std::sync::mpsc::channel();
+            let _handle = {
+                let mut stateless_ledger_buffer_reader = 
+                    match BufferedLedgerMetaReader::new(
+                        BufferedLedgerMetaReaderMode::MultiThread, 
+                        Box::new(reader), 
+                        Some(transmitter),
+                        None
+                    ) {
+                        Ok(reader) => reader,
+                        Err(error) => return Err(RunnerError::MetaReader(error))
+                    };
+        
+                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+    
+                thread::spawn(move || {
+                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+                })
+            };
 
-        Ok(receiver)
+            Ok(receiver)
+        }
     }
 
     fn read_prepared(&self) -> Vec<MetaResult> {

@@ -3,6 +3,8 @@
 # rs-ingest
 ## Ingestion library written in rust for Futurenet
 
+- [rs-ingest](#rs-ingest)
+  * [Ingestion library written in rust for Futurenet](#ingestion-library-written-in-rust-for-futurenet)
 - [Features](#features)
   * [Running offline](#running-offline)
     + [Single-thread mode](#single-thread-mode)
@@ -11,10 +13,12 @@
     + [Multi-threaded mode](#multi-threaded-mode)
   * [Closing mechanism](#closing-mechanism)
 - [Try it out](#try-it-out)
-  * [Setup](#setup)
+    + [stellar-core setup](#stellar-core-setup)
 - [Learn](#learn)
   * [Hello ledger!](#hello-ledger)
+      - [Running hello ledger](#running-hello-ledger)
   * [Invoke host function operations statistics](#invoke-host-function-operations-statistics)
+      - [Running](#running)
   * [Event streaming with online mode](#event-streaming-with-online-mode)
 
 
@@ -23,6 +27,8 @@ This package provides primitives for building custom ingestion engines on Future
 Often, developers either need ingestion features that are outside of Horizon's scope, or need higher availability for the data. For example, a protocol's frontend might need to ingest events into their own database with a very specific filtering or at a large amount, or they might also need to replay history to see if they missed some events. 
 
 This crate is being designed with this need in mind, and works on futurenet!
+
+> Note: you can also use this crate for pubnet, see the example [](./src/bin/hello_pubnet.rs).
 
 > Note: This crate is still a work in progress. The current capabilities of the crate are limited.
 
@@ -120,7 +126,8 @@ pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
         context_path: Default::default(),
-        network: SupportedNetwork::Futurenet
+        network: SupportedNetwork::Futurenet,
+        bounded_buffer_size: None
     };
 
     let mut captive_core = CaptiveCore::new(config);
@@ -138,7 +145,7 @@ pub fn main() {
 }
 ```
 
-As you can see, this is all pretty simple and straightforward. Whe first setup the captive core instance by providing the path to our `stellar-core` executable and by choosing the default context path (`/tmp/rs_ingestion_temp/`, holds buckets and potentially the db). Then we choose a range of ledgers we want `ingest` to prepare with `CaptiveCore::prepare_ledgers(&mut CaptiveCore, &Range)` so that we can later get them.
+As you can see, this is all pretty simple and straightforward. Whe first setup the captive core instance by providing the path to our `stellar-core` executable, choosing the default context path (`/tmp/rs_ingestion_temp/`, holds buckets and potentially the db), and specifying that we don't want to use a bounded buffer size when running multi-thread mode (though notice in this example we are only using single-thread mode, you can find multi-thread examples in the [examples](./src/bin/)). Then we choose a range of ledgers we want `ingest` to prepare with `CaptiveCore::prepare_ledgers(&mut CaptiveCore, &Range)` so that we can later get them.
 
 In our case, we just chose to load two ledgers and then capture the first one with `CaptiveCore::get_ledger(&CaptiveCore, ledger_sequence)`.
 
@@ -174,7 +181,8 @@ pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
         context_path: Default::default(),
-        network: SupportedNetwork::Futurenet
+        network: SupportedNetwork::Futurenet,
+        bounded_buffer_size: None
     };
 
     let mut captive_core = CaptiveCore::new(config);
@@ -289,7 +297,8 @@ pub fn main() {
     let config = IngestionConfig {
         executable_path: "/usr/local/bin/stellar-core".to_string(),
         context_path: Default::default(),
-        network: SupportedNetwork::Futurenet
+        network: SupportedNetwork::Futurenet,
+        bounded_buffer_size: None
     };
 
     let mut captive_core = CaptiveCore::new(config);

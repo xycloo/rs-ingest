@@ -29,5 +29,12 @@ pub struct IngestionConfig {
     pub context_path: ContextPath,
 
     /// Network to run stellar-core on.
-    pub network: SupportedNetwork
+    pub network: SupportedNetwork,
+
+    /// Option to create bounded buffer size.
+    /// By default, rs-ingest will use unbounded
+    /// buffers, but in some cases the implementor
+    /// might want to specify a buffer size to 
+    /// adapt to how they handle the receiver.
+    pub bounded_buffer_size: Option<usize>
 }
