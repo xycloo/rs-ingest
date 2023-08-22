@@ -150,10 +150,10 @@ pub trait StellarCoreRunnerPublic {
 
     /// Performs catchup using multiple threads, processing data from the specified range.
     /// Returns a channel receiver for receiving metadata results.
-    fn catchup_multi_thread(&mut self, from: u32, to: u32) -> Result<Receiver<MetaResult>, RunnerError>;
+    fn catchup_multi_thread(&mut self, from: u32, to: u32) -> Result<Receiver<Box<MetaResult>>, RunnerError>;
 
     /// Starts the runner and returns a channel receiver for receiving metadata results.
-    fn run(&mut self) -> Result<Receiver<MetaResult>, RunnerError>;
+    fn run(&mut self) -> Result<Receiver<Box<MetaResult>>, RunnerError>;
 
     /// Reads the prepared metadata results from the runner.
     fn read_prepared(&self) -> Vec<MetaResult>;
@@ -212,7 +212,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         Ok(())
     }
 
-    fn catchup_multi_thread(&mut self, from: u32, to: u32)-> Result<Receiver<MetaResult>, RunnerError> {
+    fn catchup_multi_thread(&mut self, from: u32, to: u32)-> Result<Receiver<Box<MetaResult>>, RunnerError> {
         if self.status != RunnerStatus::Closed {
             return Err(RunnerError::AlreadyRunning)
         }
@@ -254,7 +254,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 
 
 
-    fn run(&mut self) -> Result<Receiver<MetaResult>, RunnerError> {
+    fn run(&mut self) -> Result<Receiver<Box<MetaResult>>, RunnerError> {
         if self.status != RunnerStatus::Closed {
             return Err(RunnerError::AlreadyRunning)
         }

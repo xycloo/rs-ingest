@@ -2,6 +2,7 @@ use std::sync::mpsc::Receiver;
 use stellar_xdr::next::LedgerCloseMeta;
 use crate::{StellarCoreRunner, IngestionConfig, StellarCoreRunnerPublic, RunnerError, toml::generate_predefined_cfg, MetaResult, BufferedLedgerMetaReaderMode};
 
+#[derive(Clone, Copy)]
 /// Represents a bounded range
 pub struct BoundedRange(pub u32, pub u32);
 
@@ -69,7 +70,7 @@ impl CaptiveCore {
         Ok(())
     }
 
-    fn offline_replay_multi_thread(&mut self, from: u32, to: u32) -> Result<Receiver<MetaResult>, Error> {
+    fn offline_replay_multi_thread(&mut self, from: u32, to: u32) -> Result<Receiver<Box<MetaResult>>, Error> {
         Ok(self.stellar_core_runner.catchup_multi_thread(from, to)?)
     }
 
@@ -102,7 +103,7 @@ impl CaptiveCore {
     ///
     /// Returns a channel receiver for receiving metadata results if preparation is successful,
     /// or an `Error` if an issue occurs.
-    pub fn prepare_ledgers_multi_thread(&mut self, range: &Range) -> Result<Receiver<MetaResult>, Error> {
+    pub fn prepare_ledgers_multi_thread(&mut self, range: &Range) -> Result<Receiver<Box<MetaResult>>, Error> {
         let receiver = match range {
             Range::Bounded(range) => {
                 self.offline_replay_multi_thread(range.0, range.1)?
@@ -165,7 +166,7 @@ impl CaptiveCore {
     ///
     /// Returns a channel receiver for receiving metadata results if the runner starts successfully,
     /// or an `Error` if an issue occurs.
-    pub fn start_online_no_range(&mut self) -> Result<Receiver<MetaResult>, Error> {
+    pub fn start_online_no_range(&mut self) -> Result<Receiver<Box<MetaResult>>, Error> {
         Ok(self.stellar_core_runner.run()?)
     }
 

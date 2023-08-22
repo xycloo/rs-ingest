@@ -1,5 +1,5 @@
 use std::io::{self, Read};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender, SendError};
 use std::sync::{Arc, Mutex};
 use stellar_xdr::next::{TypeVariant, LedgerCloseMeta, Type};
 
@@ -37,6 +37,10 @@ pub enum BufReaderError {
     /// Cloned `BufReaders` must only be used for their associated thread mode.
     #[error("Cloned BufReaders must only be used for their thread mode")]
     UsedClonedBufreader,
+
+    /// Error in sending to receiver.
+    #[error("Error while sending meta to receiver {0}")]
+    SendError(#[from] SendError<Box<MetaResult>>)
 }
 
 /// Wrapper struct to hold the `LedgerCloseMeta` data.
@@ -107,7 +111,7 @@ pub struct BufferedLedgerMetaReader {
 
     /// An optional transmitter for sending metadata results.
     /// This will only be used when running online
-    transmitter: Option<Sender<MetaResult>>,
+    transmitter: Option<Sender<Box<MetaResult>>>,
 
     /// Indicates whether the reader has been cloned.
     /// A cloned reader is just a lightweight placeholder
@@ -135,7 +139,7 @@ impl BufferedLedgerMetaReader {
     /// # Returns
     ///
     /// Returns a new `BufferedLedgerMetaReader` instance if successful, or a `BufReaderError` if an issue occurs.
-    pub fn new(mode: BufferedLedgerMetaReaderMode, reader: Box<dyn Read + Send>, transmitter: Option<std::sync::mpsc::Sender<MetaResult>>) -> Result<Self, BufReaderError> {
+    pub fn new(mode: BufferedLedgerMetaReaderMode, reader: Box<dyn Read + Send>, transmitter: Option<std::sync::mpsc::Sender<Box<MetaResult>>>) -> Result<Self, BufReaderError> {
         let reader = io::BufReader::with_capacity(META_PIPE_BUFFER_SIZE, reader);
         let (cached, transmitter) = match mode {
             BufferedLedgerMetaReaderMode::SingleThread => {
@@ -228,9 +232,12 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
                     err: None
                 },
 
-                Err(_) => MetaResult { 
-                    ledger_close_meta: None, 
-                    err: Some(BufReaderError::ReadXdrNext)
+                Err(_) => {
+                    
+                    MetaResult { 
+                        ledger_close_meta: None, 
+                        err: Some(BufReaderError::ReadXdrNext)
+                    }
                 }
             };
             
@@ -292,16 +299,19 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
                     err: None
                 },
 
-                Err(_) => MetaResult { 
-                    ledger_close_meta: None, 
-                    err: Some(BufReaderError::ReadXdrNext)
+                Err(_) => {
+                    MetaResult { 
+                        ledger_close_meta: None, 
+                        err: Some(BufReaderError::ReadXdrNext)
+                    }
                 }
             };
             
             // The blow unwrap on the transmitter is safe since
             // initialization prevents initializing in the wrong mode
             // and all BufferedLedgerMetaReader fields are private.
-            self.transmitter.as_ref().unwrap().send(meta_obj).unwrap();
+
+            self.transmitter.as_ref().unwrap().send(Box::new(meta_obj))?
         }
 
         Ok(())
