@@ -1,6 +1,9 @@
+use crate::{
+    toml::generate_predefined_cfg, BufferedLedgerMetaReaderMode, IngestionConfig, MetaResult,
+    RunnerError, StellarCoreRunner, StellarCoreRunnerPublic,
+};
 use std::sync::mpsc::Receiver;
 use stellar_xdr::next::LedgerCloseMeta;
-use crate::{StellarCoreRunner, IngestionConfig, StellarCoreRunnerPublic, RunnerError, toml::generate_predefined_cfg, MetaResult, BufferedLedgerMetaReaderMode};
 
 #[derive(Clone, Copy)]
 /// Represents a bounded range
@@ -10,7 +13,7 @@ pub struct BoundedRange(pub u32, pub u32);
 /// Currently unbounded ranges are not supported.
 pub enum Range {
     /// Bounded range
-    Bounded(BoundedRange)
+    Bounded(BoundedRange),
 }
 
 impl From<Range> for std::ops::Range<u32> {
@@ -25,7 +28,7 @@ impl Range {
     /// Gets a tuple representation of the range
     pub fn bounded(&self) -> (u32, u32) {
         match self {
-            Range::Bounded(bounded_range) => (bounded_range.0, bounded_range.1)
+            Range::Bounded(bounded_range) => (bounded_range.0, bounded_range.1),
         }
     }
 }
@@ -49,7 +52,7 @@ pub enum Error {
 /// Represents a captive instance of the Stellar Core.
 pub struct CaptiveCore {
     /// The Stellar Core runner associated with the captive instance.
-    pub stellar_core_runner: StellarCoreRunner
+    pub stellar_core_runner: StellarCoreRunner,
 }
 
 impl CaptiveCore {
@@ -58,9 +61,10 @@ impl CaptiveCore {
         // generate configs in path
         generate_predefined_cfg(&config.context_path.0, config.network);
 
-        Self { stellar_core_runner: StellarCoreRunner::new(config) }
+        Self {
+            stellar_core_runner: StellarCoreRunner::new(config),
+        }
     }
-
 
     fn offline_replay_single_thread(&mut self, from: u32, to: u32) -> Result<(), Error> {
         // TODO: get archiver last checkpoint ledger for error accuracy.
@@ -70,7 +74,11 @@ impl CaptiveCore {
         Ok(())
     }
 
-    fn offline_replay_multi_thread(&mut self, from: u32, to: u32) -> Result<Receiver<Box<MetaResult>>, Error> {
+    fn offline_replay_multi_thread(
+        &mut self,
+        from: u32,
+        to: u32,
+    ) -> Result<Receiver<Box<MetaResult>>, Error> {
         Ok(self.stellar_core_runner.catchup_multi_thread(from, to)?)
     }
 
@@ -103,11 +111,12 @@ impl CaptiveCore {
     ///
     /// Returns a channel receiver for receiving metadata results if preparation is successful,
     /// or an `Error` if an issue occurs.
-    pub fn prepare_ledgers_multi_thread(&mut self, range: &Range) -> Result<Receiver<Box<MetaResult>>, Error> {
+    pub fn prepare_ledgers_multi_thread(
+        &mut self,
+        range: &Range,
+    ) -> Result<Receiver<Box<MetaResult>>, Error> {
         let receiver = match range {
-            Range::Bounded(range) => {
-                self.offline_replay_multi_thread(range.0, range.1)?
-            }
+            Range::Bounded(range) => self.offline_replay_multi_thread(range.0, range.1)?,
         };
 
         Ok(receiver)
@@ -123,10 +132,12 @@ impl CaptiveCore {
     ///
     /// This method should only be used for multi-thread mode.
     pub fn close_runner_process(&mut self) -> Result<(), Error> {
-        if (self.stellar_core_runner.thread_mode()) == Some(&BufferedLedgerMetaReaderMode::SingleThread) {
-            return Err(Error::CloseOnSingleThread)
+        if (self.stellar_core_runner.thread_mode())
+            == Some(&BufferedLedgerMetaReaderMode::SingleThread)
+        {
+            return Err(Error::CloseOnSingleThread);
         }
-        
+
         Ok(self.stellar_core_runner.close_runner()?)
     }
 
@@ -152,7 +163,7 @@ impl CaptiveCore {
                 };
 
                 if ledger_seq == sequence {
-                    return Ok(meta)
+                    return Ok(meta);
                 }
             }
         }

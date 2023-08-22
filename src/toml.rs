@@ -1,5 +1,5 @@
-use std::fs::File;
 use std::fs;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
@@ -73,16 +73,18 @@ pub fn generate_predefined_cfg(path: &str, network: SupportedNetwork) {
         }
     }
 
-    let mut cfg = File::create(Path::new(path).join("stellar-core.cfg")).expect("cannot create file");
-    
+    let mut cfg =
+        File::create(Path::new(path).join("stellar-core.cfg")).expect("cannot create file");
+
     match network {
         SupportedNetwork::Futurenet => {
-            cfg.write_all(PREDEFINED_FUTURENET_CONFIG.as_bytes()).expect("cannot write to file");
+            cfg.write_all(PREDEFINED_FUTURENET_CONFIG.as_bytes())
+                .expect("cannot write to file");
         }
 
         SupportedNetwork::Pubnet => {
-            cfg.write_all(PREDEFINED_PUBNET_CONFIG.as_bytes()).expect("cannot write to file");
+            cfg.write_all(PREDEFINED_PUBNET_CONFIG.as_bytes())
+                .expect("cannot write to file");
         }
     }
-    
 }

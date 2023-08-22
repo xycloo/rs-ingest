@@ -1,5 +1,8 @@
-use ingest::{IngestionConfig, CaptiveCore, Range, BoundedRange, SupportedNetwork};
-use stellar_xdr::next::{LedgerCloseMeta, TransactionPhase, TxSetComponent, TransactionEnvelope, OperationBody, Operation};
+use ingest::{BoundedRange, CaptiveCore, IngestionConfig, Range, SupportedNetwork};
+use stellar_xdr::next::{
+    LedgerCloseMeta, Operation, OperationBody, TransactionEnvelope, TransactionPhase,
+    TxSetComponent,
+};
 
 pub fn main() {
     let config = IngestionConfig {
@@ -7,15 +10,19 @@ pub fn main() {
         context_path: Default::default(),
         network: SupportedNetwork::Futurenet,
         bounded_buffer_size: None,
-        staggered: None
+        staggered: None,
     };
 
     let mut captive_core = CaptiveCore::new(config);
 
     // preparing just 10000 ledgers for simplicity.
-    let range = Range::Bounded(BoundedRange(292_000, 302_000)); 
-    
-    println!("[+] Preparing ledgers [{} to {}]", range.bounded().0, range.bounded().1);
+    let range = Range::Bounded(BoundedRange(292_000, 302_000));
+
+    println!(
+        "[+] Preparing ledgers [{} to {}]",
+        range.bounded().0,
+        range.bounded().1
+    );
     captive_core.prepare_ledgers_single_thread(&range).unwrap();
 
     let mut all_other_ops = 0;
@@ -25,11 +32,11 @@ pub fn main() {
         let ledger = captive_core.get_ledger(n);
         if let LedgerCloseMeta::V1(v1) = ledger.unwrap() {
             let set = match &v1.tx_set {
-                stellar_xdr::next::GeneralizedTransactionSet::V1(set) => set
+                stellar_xdr::next::GeneralizedTransactionSet::V1(set) => set,
             };
             for tx_phase in set.phases.iter() {
                 let set = match tx_phase {
-                    TransactionPhase::V0(set) => set
+                    TransactionPhase::V0(set) => set,
                 };
                 for set in set.iter() {
                     let ops: Vec<&Operation> = match set {
@@ -41,13 +48,13 @@ pub fn main() {
                                         for op in tx.tx.operations.iter() {
                                             ops.push(op);
                                         }
-                                    },
+                                    }
                                     TransactionEnvelope::TxV0(tx) => {
                                         for op in tx.tx.operations.iter() {
                                             ops.push(op);
                                         }
-                                    },
-                                    _ => todo!()
+                                    }
+                                    _ => todo!(),
                                 };
                             }
 
@@ -65,10 +72,12 @@ pub fn main() {
         }
     }
 
-    println!("Total operations recorded: {}", all_other_ops+invoke_host_ops);
+    println!(
+        "Total operations recorded: {}",
+        all_other_ops + invoke_host_ops
+    );
     println!("Non invoke host function operations: {all_other_ops}");
     println!("Invoke host function operations: {invoke_host_ops}");
 
     // print!("Ratio: {}", all_other_ops as f32 / invoke_host_ops as f32);
-
 }

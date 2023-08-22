@@ -1,14 +1,14 @@
 use std::io::{self, Read};
-use std::sync::mpsc::{Sender, SendError, SyncSender};
+use std::sync::mpsc::{SendError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
-use stellar_xdr::next::{TypeVariant, LedgerCloseMeta, Type};
+use stellar_xdr::next::{LedgerCloseMeta, Type, TypeVariant};
 
 // from the stellar/go/ingestion lib
 const META_PIPE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
 const LEDGER_READ_AHEAD_BUFFER_SIZE: usize = 20;
 
 /// Enum to represent different types of errors related to `BufReader` operations.
-#[derive(thiserror::Error, Debug, Clone )]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum BufReaderError {
     /// An unknown type was encountered. Choose from the provided list of valid types.
     #[error("Unknown type {0}, choose one of {1:?}")]
@@ -40,28 +40,28 @@ pub enum BufReaderError {
 
     /// Error in sending to receiver.
     #[error("Error while sending meta to receiver {0}")]
-    SendError(#[from] SendError<Box<MetaResult>>)
+    SendError(#[from] SendError<Box<MetaResult>>),
 }
 
 /// Wrapper struct to hold the `LedgerCloseMeta` data.
 #[derive(Clone)]
 pub struct LedgerCloseMetaWrapper {
     /// The ledger close metadata associated with this wrapper.
-    pub ledger_close_meta: LedgerCloseMeta
+    pub ledger_close_meta: LedgerCloseMeta,
 }
 
 impl LedgerCloseMetaWrapper {
     fn new(inner: LedgerCloseMeta) -> Self {
-        Self { ledger_close_meta: inner }
+        Self {
+            ledger_close_meta: inner,
+        }
     }
 }
 
 impl From<Type> for LedgerCloseMetaWrapper {
     fn from(value: Type) -> Self {
         match value {
-            Type::LedgerCloseMeta(boxed_ledger_close_meta) => {
-                Self::new(*boxed_ledger_close_meta)
-            }
+            Type::LedgerCloseMeta(boxed_ledger_close_meta) => Self::new(*boxed_ledger_close_meta),
 
             // As long as this code is used for this crate
             // this other match arms should be unreachable.
@@ -69,7 +69,7 @@ impl From<Type> for LedgerCloseMetaWrapper {
             // Note: if you want to implement a similar
             // functionality make sure to asses if this
             // unreachable block should be used or not.
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
@@ -119,14 +119,21 @@ pub struct BufferedLedgerMetaReader {
     /// Indicates whether the reader has been cloned.
     /// A cloned reader is just a lightweight placeholder
     /// reader which is only used to retrieve the mode.
-    /// 
+    ///
     /// Cloned readers are only used in multi-thread mode.
     cloned: bool,
 }
 
 impl Clone for BufferedLedgerMetaReader {
     fn clone(&self) -> Self {
-        Self { mode: self.mode.clone(), reader: None, cached: None, transmitter: None, sync_transmitter: None, cloned: true }
+        Self {
+            mode: self.mode.clone(),
+            reader: None,
+            cached: None,
+            transmitter: None,
+            sync_transmitter: None,
+            cloned: true,
+        }
     }
 }
 
@@ -142,9 +149,14 @@ impl BufferedLedgerMetaReader {
     /// # Returns
     ///
     /// Returns a new `BufferedLedgerMetaReader` instance if successful, or a `BufReaderError` if an issue occurs.
-    pub fn new(mode: BufferedLedgerMetaReaderMode, reader: Box<dyn Read + Send>, transmitter: Option<std::sync::mpsc::Sender<Box<MetaResult>>>, sync_transmitter: Option<SyncSender<Box<MetaResult>>>) -> Result<Self, BufReaderError> {
+    pub fn new(
+        mode: BufferedLedgerMetaReaderMode,
+        reader: Box<dyn Read + Send>,
+        transmitter: Option<std::sync::mpsc::Sender<Box<MetaResult>>>,
+        sync_transmitter: Option<SyncSender<Box<MetaResult>>>,
+    ) -> Result<Self, BufReaderError> {
         let reader = io::BufReader::with_capacity(META_PIPE_BUFFER_SIZE, reader);
-        
+
         // perform some safety checks and assing
         // chached.
         let cached = {
@@ -153,7 +165,7 @@ impl BufferedLedgerMetaReader {
 
             // we make sure that we either use sync tx or tx.
             if tx_is && sync_tx_is {
-                return Err(BufReaderError::MissingTransmitter)
+                return Err(BufReaderError::MissingTransmitter);
             }
 
             match mode {
@@ -161,33 +173,33 @@ impl BufferedLedgerMetaReader {
                     // we ensure that transmitters are not present in
                     // single-thread mode.
                     if tx_is || sync_tx_is {
-                        return Err(BufReaderError::UnusedTransmitter)
+                        return Err(BufReaderError::UnusedTransmitter);
                     }
 
-                    Some(Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE))))
+                    Some(Arc::new(Mutex::new(Vec::with_capacity(
+                        LEDGER_READ_AHEAD_BUFFER_SIZE,
+                    ))))
                 }
 
                 BufferedLedgerMetaReaderMode::MultiThread => {
                     // make sure that at least one transmittor is some
                     // when running multi-thread mode.
                     if !tx_is && !tx_is {
-                        return Err(BufReaderError::MissingTransmitter)
+                        return Err(BufReaderError::MissingTransmitter);
                     }
                     None
                 }
             }
         };
 
-        Ok(
-            Self { 
-                mode,
-                reader: Some(reader), 
-                cached,
-                transmitter, 
-                sync_transmitter,
-                cloned: false
-            }
-        )
+        Ok(Self {
+            mode,
+            reader: Some(reader),
+            cached,
+            transmitter,
+            sync_transmitter,
+            cloned: false,
+        })
     }
 
     /// Retrieves the thread mode of the `BufferedLedgerMetaReader`.
@@ -202,14 +214,13 @@ impl BufferedLedgerMetaReader {
 
 /// Trait for reading ledger metadata in single-thread mode from a buffered source.
 pub trait SingleThreadBufferedLedgerMetaReader {
-
     /// Reads ledger metadata from the buffered source in single-thread mode.
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` if reading is successful, or a `BufReaderError` if an issue occurs.
     fn single_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError>;
-    
+
     /// Reads and retrieves cached ledger metadata in single-thread mode.
     ///
     /// # Returns
@@ -232,36 +243,35 @@ pub trait MultiThreadBufferedLedgerMetaReader {
     /// # Returns
     ///
     /// Returns `Ok(())` if reading is successful, or a `BufReaderError` if an issue occurs.
-    fn multi_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError>;    
+    fn multi_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError>;
 }
-
 
 impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
     fn single_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError> {
         if self.mode != BufferedLedgerMetaReaderMode::SingleThread {
-            return Err(BufReaderError::WrongModeMultiThread)
+            return Err(BufReaderError::WrongModeMultiThread);
         }
 
         if self.cloned {
-            return Err(BufReaderError::UsedClonedBufreader)
+            return Err(BufReaderError::UsedClonedBufreader);
         }
 
-        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.reader.as_mut().unwrap()) {
+        for t in stellar_xdr::next::Type::read_xdr_framed_iter(
+            TypeVariant::LedgerCloseMeta,
+            &mut self.reader.as_mut().unwrap(),
+        ) {
             let meta_obj = match t {
                 Ok(ledger_close_meta) => MetaResult {
                     ledger_close_meta: Some(ledger_close_meta.into()),
-                    err: None
+                    err: None,
                 },
 
-                Err(_) => {
-                    
-                    MetaResult { 
-                        ledger_close_meta: None, 
-                        err: Some(BufReaderError::ReadXdrNext)
-                    }
-                }
+                Err(_) => MetaResult {
+                    ledger_close_meta: None,
+                    err: Some(BufReaderError::ReadXdrNext),
+                },
             };
-            
+
             // The below unwrap on cached is safe since initialization
             // prevents initializing in the wrong mode and all
             // BufferedLedgerMetaReader fields are private.
@@ -273,11 +283,11 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
 
     fn read_meta(&self) -> Result<Vec<MetaResult>, BufReaderError> {
         if self.mode != BufferedLedgerMetaReaderMode::SingleThread {
-            return Err(BufReaderError::WrongModeMultiThread)
+            return Err(BufReaderError::WrongModeMultiThread);
         }
 
         if self.cloned {
-            return Err(BufReaderError::UsedClonedBufreader)
+            return Err(BufReaderError::UsedClonedBufreader);
         }
 
         // The below unwrap on cached is safe since initialization
@@ -289,43 +299,44 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
 
     fn clear_buffered(&mut self) -> Result<(), BufReaderError> {
         if self.mode != BufferedLedgerMetaReaderMode::SingleThread {
-            return Err(BufReaderError::WrongModeMultiThread)
+            return Err(BufReaderError::WrongModeMultiThread);
         }
 
         if self.cloned {
-            return Err(BufReaderError::UsedClonedBufreader)
+            return Err(BufReaderError::UsedClonedBufreader);
         }
 
-        self.cached = Some(Arc::new(Mutex::new(Vec::with_capacity(LEDGER_READ_AHEAD_BUFFER_SIZE))));
+        self.cached = Some(Arc::new(Mutex::new(Vec::with_capacity(
+            LEDGER_READ_AHEAD_BUFFER_SIZE,
+        ))));
         Ok(())
     }
-
 }
-
 
 impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
     fn multi_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError> {
         if self.mode != BufferedLedgerMetaReaderMode::MultiThread {
-            return Err(BufReaderError::WrongModeSingleThread)
+            return Err(BufReaderError::WrongModeSingleThread);
         }
 
         if self.cloned {
-            return Err(BufReaderError::UsedClonedBufreader)
+            return Err(BufReaderError::UsedClonedBufreader);
         }
 
-        for t in stellar_xdr::next::Type::read_xdr_framed_iter(TypeVariant::LedgerCloseMeta, &mut self.reader.as_mut().unwrap()) {
+        for t in stellar_xdr::next::Type::read_xdr_framed_iter(
+            TypeVariant::LedgerCloseMeta,
+            &mut self.reader.as_mut().unwrap(),
+        ) {
             let meta_obj = match t {
                 Ok(ledger_close_meta) => MetaResult {
                     ledger_close_meta: Some(ledger_close_meta.into()),
-                    err: None
+                    err: None,
                 },
 
-                Err(_) => {
-                    MetaResult { 
-                        ledger_close_meta: None, 
-                        err: Some(BufReaderError::ReadXdrNext)
-                    }
-                }
+                Err(_) => MetaResult {
+                    ledger_close_meta: None,
+                    err: Some(BufReaderError::ReadXdrNext),
+                },
             };
 
             if let Some(tx) = self.sync_transmitter.as_ref() {
@@ -335,7 +346,10 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
                 // initialization prevents initializing in the wrong mode
                 // and all BufferedLedgerMetaReader fields are private.
 
-                self.transmitter.as_ref().unwrap().send(Box::new(meta_obj))?
+                self.transmitter
+                    .as_ref()
+                    .unwrap()
+                    .send(Box::new(meta_obj))?
             }
         }
 

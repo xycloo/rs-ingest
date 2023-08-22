@@ -1,4 +1,4 @@
-use ingest::{IngestionConfig, CaptiveCore, Range, BoundedRange, SupportedNetwork};
+use ingest::{BoundedRange, CaptiveCore, IngestionConfig, Range, SupportedNetwork};
 use stellar_xdr::next::LedgerCloseMeta;
 
 pub fn main() {
@@ -7,7 +7,7 @@ pub fn main() {
         context_path: Default::default(),
         network: SupportedNetwork::Futurenet,
         bounded_buffer_size: None,
-        staggered: None
+        staggered: None,
     };
 
     let mut captive_core = CaptiveCore::new(config);
@@ -23,5 +23,4 @@ pub fn main() {
     };
 
     println!("Hello ledger {}", ledger_seq);
-    
 }

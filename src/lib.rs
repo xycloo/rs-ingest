@@ -28,16 +28,16 @@
 //! > Note: Currently, online mode only supports multi-threaded execution.
 //!
 //! To learn more about the crate and check out a couple of examples see the [README](https://github.com/xycloo/rs-ingest/blob/main/README.md)
-//! 
+//!
 
 #![warn(missing_docs)]
 mod buffered_ledger_meta_reader;
-mod ingestion_config;
-mod core_runner;
 mod captive_core;
+mod core_runner;
+mod ingestion_config;
 mod toml;
 
 pub use buffered_ledger_meta_reader::*;
-pub use ingestion_config::*;
-pub use core_runner::*;
 pub use captive_core::*;
+pub use core_runner::*;
+pub use ingestion_config::*;
