@@ -36,5 +36,10 @@ pub struct IngestionConfig {
     /// buffers, but in some cases the implementor
     /// might want to specify a buffer size to 
     /// adapt to how they handle the receiver.
-    pub bounded_buffer_size: Option<usize>
+    pub bounded_buffer_size: Option<usize>,
+
+    /// Option to split multi-thread mode catchups
+    /// to produce staggered and help with write
+    /// amount in databases for large catchups
+    pub staggered: Option<u32>
 }

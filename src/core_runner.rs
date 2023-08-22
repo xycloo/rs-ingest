@@ -1,4 +1,4 @@
-use std::{process::{Command, Child}, io::{BufReader, self}, thread, sync::mpsc::Receiver};
+use std::{process::{Command, Child, ChildStdout}, io::{BufReader, self}, thread::{self, JoinHandle}, sync::{mpsc::Receiver, Arc, Mutex}};
 use crate::{IngestionConfig, BufferedLedgerMetaReader, BufReaderError, MetaResult, 
     SingleThreadBufferedLedgerMetaReader, BufferedLedgerMetaReaderMode, 
     MultiThreadBufferedLedgerMetaReader};
@@ -35,7 +35,11 @@ pub struct StellarCoreRunner {
 
     process: Option<Child>,
 
-    bounded_buffer_size: Option<usize>
+    bounded_buffer_size: Option<usize>,
+
+    staggered: Option<u32>,
+
+
 
 }
 
@@ -105,7 +109,11 @@ impl StellarCoreRunner {
 
             Ok(())
         } else {
-            Err(RunnerError::ProcessNotFound)
+            if let Some(_) = self.staggered {
+                Ok(())
+            } else {
+                Err(RunnerError::ProcessNotFound)
+            }
         }
     }
 
@@ -136,8 +144,13 @@ impl StellarCoreRunner {
         &self.status
     }
 
-    pub(crate) fn thread_mode(&self) -> &BufferedLedgerMetaReaderMode {
-        self.ledger_buffer_reader.as_ref().unwrap().thread_mode()
+    pub(crate) fn thread_mode(&self) -> Option<&BufferedLedgerMetaReaderMode> {
+        if let Some(mode) = self.ledger_buffer_reader.as_ref() {
+            Some(mode.thread_mode())
+        } else {
+            None
+        }
+
     }
 }
 
@@ -174,7 +187,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
             ledger_buffer_reader: None,
             prepared: None,
             process: None,
-            bounded_buffer_size: config.bounded_buffer_size
+            bounded_buffer_size: config.bounded_buffer_size,
+            staggered: config.staggered
         }
     }
 
@@ -215,66 +229,150 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         Ok(())
     }
 
-    fn catchup_multi_thread(&mut self, from: u32, to: u32)-> Result<Receiver<Box<MetaResult>>, RunnerError> {
+    fn catchup_multi_thread(&mut self, from: u32, to: u32)-> Result<Receiver<Box<MetaResult>>, RunnerError> {    
         if self.status != RunnerStatus::Closed {
             return Err(RunnerError::AlreadyRunning)
         }
 
         self.status = RunnerStatus::RunningOffline;
 
-        let range = format!("{}/{}", to, to - from + 1);
+        if let Some(stagger_every) = self.staggered {
+            let ledgers_amount = to - from;
+            let stagger_times = ledgers_amount / stagger_every;
+
+            if stagger_times <= 1 {
+                let range = format!("{}/{}", to, to - from + 1);
+                    self.run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"])?;
+                    let stdout = self.process.as_mut().unwrap().stdout
+                        .take()
+                        .unwrap(); // TODO: handle panic
+
+                    let reader = BufReader::new(stdout);
+                    
+                if let Some(bound) = self.bounded_buffer_size {
+                    self.start_and_sync_transmitter(reader, bound)
+                } else {
+                    self.start_and_transmitter(reader)
+                    
+                }
+            } else {
+                if let Some(bound) = self.bounded_buffer_size {
+                    let (transmitter, receiver) = std::sync::mpsc::sync_channel(bound);
+                    
+                    let cloned = transmitter.clone();
+                    let context_path = self.context_path.clone();
+                    let executable_path = self.executable_path.clone();
+
+                    let step = (to - from + 1) / stagger_times;
+                    let ranges: Vec<_> = (0..stagger_times)
+                        .map(|i| {
+                            let start = from + i * step;
+                            let end = std::cmp::min(start + step - 1, to);
+                            start..=end
+                        })
+                        .collect();
+                    println!("{:?}", ranges);
+                    thread::spawn(move || {
+                    for range in ranges { 
+                            let range = format!("{}/{}", range.end(), range.end() - range.start() + 1);
+                                                        
+                            let process = run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"], &context_path, &executable_path)?;                        
+                            let stdout = process.stdout.unwrap();
+                            let reader = BufReader::new(stdout);
+                            let _ = Some({
+                                let mut stateless_ledger_buffer_reader = 
+                                    match BufferedLedgerMetaReader::new(
+                                        BufferedLedgerMetaReaderMode::MultiThread, 
+                                        Box::new(reader), 
+                                        
+                                        // transmitters can be cloned
+                                        None,
+                                        Some(cloned.clone())
+                                    ) {
+                                        Ok(reader) => reader,
+                                        Err(error) => return Err(RunnerError::MetaReader(error))
+                                    };
+                        
+                                //self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+                    
+                                thread::spawn(move || {
+                                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+                                }).join();
+                                
+                            });
+                    }
+                    Ok(())
+                        });
+                    
     
-        self.run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"])?;
-        let stdout = self.process.as_mut().unwrap().stdout
-            .take()
-            .unwrap(); // TODO: handle panic
+                    Ok(receiver)
+                } else {
+                    let (transmitter, receiver) = std::sync::mpsc::channel();
+                    //let command_mutex = Arc::new(Mutex::new(())); // Mutex to control command execution
+                    let cloned = transmitter.clone();
+                    let context_path = self.context_path.clone();
+                    let executable_path = self.executable_path.clone();
 
-        let reader = BufReader::new(stdout);
-
-        if let Some(bound) = self.bounded_buffer_size {
-            let (transmitter, receiver) = std::sync::mpsc::sync_channel(bound);
-            let _handle = {
-                let mut stateless_ledger_buffer_reader = 
-                    match BufferedLedgerMetaReader::new(
-                        BufferedLedgerMetaReaderMode::MultiThread, 
-                        Box::new(reader), 
-                        None,
-                        Some(transmitter)
-                    ) {
-                        Ok(reader) => reader,
-                        Err(error) => return Err(RunnerError::MetaReader(error))
-                    };
-        
-                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+                    let step = (to - from + 1) / stagger_times;
+                    let ranges: Vec<_> = (0..stagger_times)
+                        .map(|i| {
+                            let start = from + i * step;
+                            let end = std::cmp::min(start + step - 1, to);
+                            start..=end
+                        })
+                        .collect();
+                    println!("{:?}", ranges);
+                    thread::spawn(move || {
+                    for range in ranges { 
+                            let range = format!("{}/{}", range.end(), range.end() - range.start() + 1);
+                                                        
+                            let process = run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"], &context_path, &executable_path)?;                        
+                            let stdout = process.stdout.unwrap();
+                            let reader = BufReader::new(stdout);
+                            let _ = Some({
+                                let mut stateless_ledger_buffer_reader = 
+                                    match BufferedLedgerMetaReader::new(
+                                        BufferedLedgerMetaReaderMode::MultiThread, 
+                                        Box::new(reader), 
+                                        
+                                        // transmitters can be cloned
+                                        Some(cloned.clone()),
+                                        None
+                                    ) {
+                                        Ok(reader) => reader,
+                                        Err(error) => return Err(RunnerError::MetaReader(error))
+                                    };
+                        
+                                //self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+                    
+                                thread::spawn(move || {
+                                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+                                }).join();
+                                
+                            });
+                    }
+                    Ok(())
+                        });
+                    
     
-                thread::spawn(move || {
-                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
-                })
-            };
-
-            Ok(receiver)
+                    Ok(receiver)
+                }
+            }
         } else {
-            let (transmitter, receiver) = std::sync::mpsc::channel();
-            let _handle = {
-                let mut stateless_ledger_buffer_reader = 
-                    match BufferedLedgerMetaReader::new(
-                        BufferedLedgerMetaReaderMode::MultiThread, 
-                        Box::new(reader), 
-                        Some(transmitter),
-                        None
-                    ) {
-                        Ok(reader) => reader,
-                        Err(error) => return Err(RunnerError::MetaReader(error))
-                    };
+            let range = format!("{}/{}", to, to - from + 1);
         
-                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
-    
-                thread::spawn(move || {
-                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
-                })
-            };
+            self.run_core_cli(&["catchup", "--in-memory", &range, "--metadata-output-stream fd:1"])?;
+            let stdout = self.process.as_mut().unwrap().stdout
+                .take()
+                .unwrap(); // TODO: handle panic
 
-            Ok(receiver)
+            let reader = BufReader::new(stdout);
+
+            if let Some(bound) = self.bounded_buffer_size {
+                self.start_and_sync_transmitter(reader, bound)
+            } else {
+                self.start_and_transmitter(reader)
+            }
         }
     }
 
@@ -314,49 +412,9 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         let reader = BufReader::new(stdout);
 
         if let Some(bound) = self.bounded_buffer_size {
-            let (transmitter, receiver) = std::sync::mpsc::sync_channel(bound);
-            let _handle = {
-                let mut stateless_ledger_buffer_reader = 
-                    match BufferedLedgerMetaReader::new(
-                        BufferedLedgerMetaReaderMode::MultiThread, 
-                        Box::new(reader), 
-                        None,
-                        Some(transmitter)
-                    ) {
-                        Ok(reader) => reader,
-                        Err(error) => return Err(RunnerError::MetaReader(error))
-                    };
-        
-                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
-    
-                thread::spawn(move || {
-                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
-                })
-            };
-
-            Ok(receiver)
+            self.start_and_sync_transmitter(reader, bound)
         } else {
-            let (transmitter, receiver) = std::sync::mpsc::channel();
-            let _handle = {
-                let mut stateless_ledger_buffer_reader = 
-                    match BufferedLedgerMetaReader::new(
-                        BufferedLedgerMetaReaderMode::MultiThread, 
-                        Box::new(reader), 
-                        Some(transmitter),
-                        None
-                    ) {
-                        Ok(reader) => reader,
-                        Err(error) => return Err(RunnerError::MetaReader(error))
-                    };
-        
-                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
-    
-                thread::spawn(move || {
-                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
-                })
-            };
-
-            Ok(receiver)
+            self.start_and_transmitter(reader)
         }
     }
 
@@ -379,3 +437,80 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
     }
 
 }
+
+impl StellarCoreRunner {
+    fn start_and_transmitter(&mut self, reader: BufReader<ChildStdout>) -> Result<Receiver<Box<MetaResult>>, RunnerError> {
+        let (transmitter, receiver) = std::sync::mpsc::channel();
+            let _handle = {
+                let mut stateless_ledger_buffer_reader = 
+                    match BufferedLedgerMetaReader::new(
+                        BufferedLedgerMetaReaderMode::MultiThread, 
+                        Box::new(reader), 
+                        Some(transmitter),
+                        None
+                    ) {
+                        Ok(reader) => reader,
+                        Err(error) => return Err(RunnerError::MetaReader(error))
+                    };
+        
+                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+    
+                thread::spawn(move || {
+                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+                })
+            };
+
+            Ok(receiver)
+    }
+
+    fn start_and_sync_transmitter(&mut self, reader: BufReader<ChildStdout>, bound: usize) -> Result<Receiver<Box<MetaResult>>, RunnerError> {
+        let (transmitter, receiver) = std::sync::mpsc::sync_channel(bound);
+            let _handle = {
+                let mut stateless_ledger_buffer_reader = 
+                    match BufferedLedgerMetaReader::new(
+                        BufferedLedgerMetaReaderMode::MultiThread, 
+                        Box::new(reader), 
+                        None,
+                        Some(transmitter)
+                    ) {
+                        Ok(reader) => reader,
+                        Err(error) => return Err(RunnerError::MetaReader(error))
+                    };
+        
+                self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+    
+                thread::spawn(move || {
+                    stateless_ledger_buffer_reader.multi_thread_read_ledger_meta_from_pipe().unwrap()
+                })
+            };
+
+            Ok(receiver)
+    }
+}
+
+fn run_core_cli(args: &[&str], context_path: &str, executable_path: &str) -> Result<Child, RunnerError> {
+    let conf_arg = format!("--conf {}/stellar-core.cfg", context_path);
+
+    let mut cmd = Command::new(executable_path);
+    for arg in args {
+        cmd.arg(arg);
+    }
+    cmd.current_dir(context_path)
+        .arg(conf_arg)
+        //.arg("--in-memory") // TODO: manage in-memory or DB running on implementor choice.
+        .arg("--ll ERROR");
+
+
+    let cmd = cmd
+        .stdout(std::process::Stdio::piped())
+        .spawn();
+
+
+    match cmd {
+        Ok(child) => {
+            Ok(child)
+        },
+        Err(_) => Err(RunnerError::CliExec)
+    }
+}
+

@@ -123,7 +123,7 @@ impl CaptiveCore {
     ///
     /// This method should only be used for multi-thread mode.
     pub fn close_runner_process(&mut self) -> Result<(), Error> {
-        if *(self.stellar_core_runner.thread_mode()) == BufferedLedgerMetaReaderMode::SingleThread {
+        if (self.stellar_core_runner.thread_mode()) == Some(&BufferedLedgerMetaReaderMode::SingleThread) {
             return Err(Error::CloseOnSingleThread)
         }
         
