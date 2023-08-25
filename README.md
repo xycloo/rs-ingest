@@ -28,7 +28,7 @@ Often, developers either need ingestion features that are outside of Horizon's s
 
 This crate is being designed with this need in mind, and works on futurenet!
 
-> Note: you can also use this crate for pubnet, see the example [](./src/bin/hello_pubnet.rs).
+> Note: You can also use this crate for pubnet, see the [example](./src/bin/hello_pubnet.rs).
 
 > Note: This crate is still a work in progress. The current capabilities of the crate are limited.
 
@@ -74,7 +74,7 @@ When running multi-thread mode you also need to call the [closing mechanism](#cl
 
 The crate is a WIP, but you can already start playing around the features it currently offers. For example, check out the [examples](https://github.com/xycloo/rs-soroban-cortex/tree/main/ingest/src/bin).
 
-The crate is avaiable on crates.io:
+The crate is available on crates.io:
 
 ```rust
 ingest = "0.0.1"
@@ -153,7 +153,7 @@ pub fn main() {
 }
 ```
 
-As you can see, this is all pretty simple and straightforward. Whe first setup the captive core instance by providing the path to our `stellar-core` executable, choosing the default context path (`/tmp/rs_ingestion_temp/`, holds buckets and potentially the db), and specifying that we don't want to use a bounded buffer size when running multi-thread mode (though notice in this example we are only using single-thread mode, you can find multi-thread examples in the [examples](./src/bin/)). Then we choose a range of ledgers we want `ingest` to prepare with `CaptiveCore::prepare_ledgers(&mut CaptiveCore, &Range)` so that we can later get them.
+As you can see, this is all pretty simple and straightforward. We first setup the captive core instance by providing the path to our `stellar-core` executable, choosing the default context path (`/tmp/rs_ingestion_temp/`, holds buckets and potentially the db), and specifying that we don't want to use a bounded buffer size when running multi-thread mode (though notice in this example we are only using single-thread mode, you can find multi-thread examples in the [examples](./src/bin/)). Then we choose a range of ledgers we want `ingest` to prepare with `CaptiveCore::prepare_ledgers(&mut CaptiveCore, &Range)` so that we can later get them.
 
 In our case, we just chose to load two ledgers and then capture the first one with `CaptiveCore::get_ledger(&CaptiveCore, ledger_sequence)`.
 
@@ -168,7 +168,7 @@ Warning: soroban-env-host-curr is running a pre-release version 0.0.17
 Hello ledger 292395
 ```
 
-> Note: Don't worry about the warning. `stellar-core` is just letting us know we are working on Futurenet, which has not yeat been released as a stable audited release.
+> Note: Don't worry about the warning. `stellar-core` is just letting us know we are working on Futurenet, which has not yet been released as a stable audited release.
 
 If you're seeing a different result and are experiencing errors, first make sure you have installed the correct version of `stellar-core` (following [this set of commands](#setup)), and if you still experience errors please open an issue. 
 
@@ -210,7 +210,7 @@ pub fn main() {
 
 As you can see, we're preparing 10000 ledgers. Note that preparing these is not instant and will take a bit more than preparing just the two ledgers of the previous example.
 
-Anyways, now it's time to process the prepared ledgers and count how many of the total operations where invoke host functions operations:
+Anyways, now it's time to process the prepared ledgers and count how many of the total operations were invoke host functions operations:
 
 ```rust
 pub fn main() {
@@ -269,11 +269,11 @@ pub fn main() {
 }
 ```
 
-Hopefully the above is straightforward, at least in that we're just proecessing everyone of the ledgers we have prepared in the previous step. The processing is done against `stellar_xdr::next::LedgerCloseMeta`, but we realize that as is it's a bit too verbose to get things like operations and so on so we plan to provide some util functions that parse `LedgerCloseMeta` to obtain information. For example, we would like to provide a helper that converts the meta into a `std::Vec` of events.
+Hopefully the above is straightforward, at least in that we're just processing every one of the ledgers we have prepared in the previous step. The processing is done against `stellar_xdr::next::LedgerCloseMeta`, but we realize that as is it's a bit too verbose to get things like operations and so on so we plan to provide some util functions that parse `LedgerCloseMeta` to obtain information. For example, we would like to provide a helper that converts the meta into a `std::Vec` of events.
 
 #### Running
 
-As mentioned previously this one will take a bit more than the hello exampe (~10 minutes).
+As mentioned previously this one will take a bit more than the hello example (~10 minutes).
 
 The result should be the following:
 
