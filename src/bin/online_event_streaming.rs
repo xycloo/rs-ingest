@@ -1,4 +1,4 @@
-use ingest::{CaptiveCore, IngestionConfig, SupportedNetwork};
+use ingest::{CaptiveCore, IngestionConfig, SupportedNetwork, LedgerCloseMetaReader};
 use stellar_xdr::next::{LedgerCloseMeta, TransactionMeta};
 
 const TARGET_SEQ: u32 = 387468;
@@ -20,35 +20,8 @@ pub fn main() {
         "Capturing all events. When a contract event will be emitted it will be printed to stdout"
     );
     for result in receiver.iter() {
-        let ledger = result.ledger_close_meta.unwrap().ledger_close_meta;
-        match &ledger {
-            LedgerCloseMeta::V1(v1) => {
-                let ledger_seq = v1.ledger_header.header.ledger_seq;
-                if ledger_seq == TARGET_SEQ {
-                    println!("Reached target ledger, closing");
-                    captive_core.close_runner_process().unwrap();
-
-                    std::process::exit(0)
-                }
-
-                for tx_processing in v1.tx_processing.iter() {
-                    match &tx_processing.tx_apply_processing {
-                        TransactionMeta::V3(meta) => {
-                            if let Some(soroban) = &meta.soroban_meta {
-                                if !soroban.events.is_empty() {
-                                    println!(
-                                        "Events for ledger {}: \n{}\n",
-                                        ledger_seq,
-                                        serde_json::to_string_pretty(&soroban.events).unwrap()
-                                    )
-                                }
-                            }
-                        }
-                        _ => todo!(),
-                    }
-                }
-            }
-            _ => (),
-        }
+        let ledger_sequence = LedgerCloseMetaReader::ledegr_sequence(&result).unwrap();
+        let events = LedgerCloseMetaReader::soroban_events(&result).unwrap();
+        println!("Events for ledger {}:\n{}", ledger_sequence, serde_json::to_string(&events).unwrap())
     }
 }

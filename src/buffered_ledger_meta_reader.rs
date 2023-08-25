@@ -2,6 +2,7 @@ use std::io::{self, Read};
 use std::sync::mpsc::{SendError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use stellar_xdr::next::{LedgerCloseMeta, Type, TypeVariant};
+use std::io::prelude::*;
 
 // from the stellar/go/ingestion lib
 const META_PIPE_BUFFER_SIZE: usize = 10 * 1024 * 1024;

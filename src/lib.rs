@@ -30,14 +30,15 @@
 //! To learn more about the crate and check out a couple of examples see the [README](https://github.com/xycloo/rs-ingest/blob/main/README.md)
 //!
 
-#![warn(missing_docs)]
 mod buffered_ledger_meta_reader;
 mod captive_core;
 mod core_runner;
 mod ingestion_config;
 mod toml;
+mod reader;
 
 pub use buffered_ledger_meta_reader::*;
 pub use captive_core::*;
 pub use core_runner::*;
 pub use ingestion_config::*;
+pub use reader::*;
