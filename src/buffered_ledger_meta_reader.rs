@@ -45,7 +45,7 @@ pub enum BufReaderError {
 }
 
 /// Wrapper struct to hold the `LedgerCloseMeta` data.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LedgerCloseMetaWrapper {
     /// The ledger close metadata associated with this wrapper.
     pub ledger_close_meta: LedgerCloseMeta,
@@ -76,7 +76,7 @@ impl From<Type> for LedgerCloseMetaWrapper {
 }
 
 /// Represents the result of processing ledger metadata.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MetaResult {
     /// The ledger close metadata associated with this result.
     pub ledger_close_meta: Option<LedgerCloseMetaWrapper>,
