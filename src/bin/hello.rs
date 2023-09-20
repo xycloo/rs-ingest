@@ -12,10 +12,10 @@ pub fn main() {
 
     let mut captive_core = CaptiveCore::new(config);
 
-    let range = Range::Bounded(BoundedRange(292395, 292396));
+    let range = Range::Bounded(BoundedRange(29, 30));
     captive_core.prepare_ledgers_single_thread(&range).unwrap();
 
-    let ledger = captive_core.get_ledger(292395);
+    let ledger = captive_core.get_ledger(29);
     let ledger_seq = match ledger.as_ref().unwrap() {
         LedgerCloseMeta::V1(v1) => v1.ledger_header.header.ledger_seq,
         LedgerCloseMeta::V0(v0) => v0.ledger_header.header.ledger_seq,
