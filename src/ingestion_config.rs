@@ -15,6 +15,9 @@ pub enum SupportedNetwork {
 
     /// Ingest on pubnet.
     Pubnet,
+
+    /// Ingest on testnet.
+    Testnet
 }
 
 /// Configuration settings

@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 use std::sync::mpsc::{SendError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
-use stellar_xdr::next::{LedgerCloseMeta, Type, TypeVariant};
+use stellar_xdr::next::{LedgerCloseMeta, Type, TypeVariant, DEFAULT_XDR_RW_DEPTH_LIMIT};
 use std::io::prelude::*;
 
 // from the stellar/go/ingestion lib
@@ -257,9 +257,11 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
             return Err(BufReaderError::UsedClonedBufreader);
         }
 
+        let mut reader = self.reader.as_mut().unwrap();
+        let mut xdr_reader = stellar_xdr::next::DepthLimitedRead::new(&mut reader, DEFAULT_XDR_RW_DEPTH_LIMIT);
         for t in stellar_xdr::next::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
-            &mut self.reader.as_mut().unwrap(),
+            &mut xdr_reader,
         ) {
             let meta_obj = match t {
                 Ok(ledger_close_meta) => MetaResult {
@@ -324,9 +326,11 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
             return Err(BufReaderError::UsedClonedBufreader);
         }
 
+        let mut reader = self.reader.as_mut().unwrap();
+        let mut xdr_reader = stellar_xdr::next::DepthLimitedRead::new(&mut reader, DEFAULT_XDR_RW_DEPTH_LIMIT);
         for t in stellar_xdr::next::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
-            &mut self.reader.as_mut().unwrap(),
+            &mut xdr_reader,
         ) {
             let meta_obj = match t {
                 Ok(ledger_close_meta) => MetaResult {
