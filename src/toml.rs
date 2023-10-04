@@ -62,6 +62,33 @@ HISTORY="curl -sf https://history.stellar.org/prd/core-live/core_live_001/{0} -o
 
 "#;
 
+const PREDEFINED_TESTNET_CONFIG: &str = r#"
+LOG_COLOR=true
+LOG_FILE_PATH=""
+HTTP_PORT=0
+PUBLIC_HTTP_PORT=false
+
+NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+
+#EXPERIMENTAL_PRECAUTION_DELAY_META=true
+DATABASE="sqlite3://stellar.db"
+PEER_PORT=11725
+
+UNSAFE_QUORUM=true
+
+[[HOME_DOMAINS]]
+HOME_DOMAIN="testnet.stellar.org"
+QUALITY="MEDIUM"
+
+[[VALIDATORS]]
+NAME="sdf_testnet_1"
+HOME_DOMAIN="testnet.stellar.org"
+PUBLIC_KEY="GDKXE2OZMJIPOSLNA6N6F2BVCI3O777I2OOC4BV7VOYUEHYX7RTRYA7Y"
+ADDRESS="core-testnet1.stellar.org"
+HISTORY="curl -sf http://history.stellar.org/prd/core-testnet/core_testnet_001/{0} -o {1}"
+
+"#;
+
 pub fn generate_predefined_cfg(path: &str, network: SupportedNetwork) {
     match fs::create_dir(path) {
         Ok(_) => println!("Directory created successfully."),
@@ -85,6 +112,11 @@ pub fn generate_predefined_cfg(path: &str, network: SupportedNetwork) {
         SupportedNetwork::Pubnet => {
             cfg.write_all(PREDEFINED_PUBNET_CONFIG.as_bytes())
                 .expect("cannot write to file");
+        }
+
+        SupportedNetwork::Testnet => {
+            cfg.write_all(PREDEFINED_TESTNET_CONFIG.as_bytes())
+                .expect("cannot write to file")
         }
     }
 }
