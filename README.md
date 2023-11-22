@@ -71,7 +71,7 @@ The crate is a WIP, but you can already start playing around the features it cur
 The crate is available on crates.io:
 
 ```rust
-ingest = "0.0.1"
+ingest = "0.0.3"
 ```
 
 ### stellar-core setup
@@ -83,7 +83,7 @@ git clone https://github.com/stellar/stellar-core
 
 cd stellar-core
 
-git checkout b7d3a8f8
+git checkout v20.0.0rc1
 
 git submodule init
 
@@ -97,6 +97,8 @@ make
 
 make install [this one might need root access on some machines]
 ```
+
+> Note. Depending on the machine, you might need a different cmake env var than `CXX=clang++-12`.
 
 
 # Learn
