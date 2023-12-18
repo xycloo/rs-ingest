@@ -23,9 +23,7 @@ impl LedgerCloseMetaReader {
             LedgerCloseMeta::V1(v1) => {
                 Ok(v1.ledger_header.header.ledger_seq)
             }
-            LedgerCloseMeta::V2(v2) => {
-                Ok(v2.ledger_header.header.ledger_seq)
-            }
+            
         }
     }
 
@@ -39,9 +37,7 @@ impl LedgerCloseMetaReader {
             LedgerCloseMeta::V1(v1) => {
                 Ok(v1.ledger_header.hash.0)
             }
-            LedgerCloseMeta::V2(v2) => {
-                Ok(v2.ledger_header.hash.0)
-            }
+            
         }
     }
 
@@ -55,9 +51,7 @@ impl LedgerCloseMetaReader {
             LedgerCloseMeta::V1(v1) => {
                 Ok(v1.ledger_header.header.previous_ledger_hash.0)
             }
-            LedgerCloseMeta::V2(v2) => {
-                Ok(v2.ledger_header.header.previous_ledger_hash.0)
-            }
+            
         }
     }
 
@@ -71,9 +65,7 @@ impl LedgerCloseMetaReader {
             LedgerCloseMeta::V1(v1) => {
                 Ok(v1.ledger_header.header.ledger_version)
             }
-            LedgerCloseMeta::V2(v2) => {
-                Ok(v2.ledger_header.header.ledger_version)
-            }
+           
         }
     }
 
@@ -87,9 +79,7 @@ impl LedgerCloseMetaReader {
             LedgerCloseMeta::V1(v1) => {
                 Ok(v1.ledger_header.header.bucket_list_hash.0)
             }
-            LedgerCloseMeta::V2(v2) => {
-                Ok(v2.ledger_header.header.bucket_list_hash.0)
-            }
+           
         }
     }
 
@@ -103,9 +93,7 @@ impl LedgerCloseMetaReader {
             LedgerCloseMeta::V1(v1) => {
                 Ok(v1.tx_processing.len())
             }
-            LedgerCloseMeta::V2(v2) => {
-                Ok(v2.tx_processing.len())
-            }
+          
         }
     }
 
@@ -137,29 +125,7 @@ impl LedgerCloseMetaReader {
                 }
                 Ok(envelopes)
             }
-            LedgerCloseMeta::V2(v2) => {
-                let mut envelopes = Vec::with_capacity(Self::count_transactions(result)?);
-                 
-                match &v2.tx_set {
-                    GeneralizedTransactionSet::V1(v1) => {
-                        for phase in v1.phases.iter() {
-                            match phase {
-                                TransactionPhase::V0(v0) => {
-                                    for component in v0.iter() {
-                                        match component {
-                                            TxSetComponent::TxsetCompTxsMaybeDiscountedFee(txset) => {
-                                                envelopes.append(&mut txset.txs.to_vec())
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                }
-                Ok(envelopes)
-            }
+          
         }
     }
 
@@ -169,7 +135,6 @@ impl LedgerCloseMetaReader {
         match meta {
             LedgerCloseMeta::V0(v0) => Ok(v0.tx_processing.to_vec()),
             LedgerCloseMeta::V1(v1) => Ok(v1.tx_processing.to_vec()),
-            LedgerCloseMeta::V2(v2) => Ok(v2.tx_processing.to_vec())
         }
     }
 

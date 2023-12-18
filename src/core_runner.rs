@@ -5,8 +5,8 @@ use crate::{
 use std::{
     io::{self, BufReader},
     process::{Child, ChildStdout, Command},
-    sync::{mpsc::Receiver, Arc, Mutex},
-    thread::{self, JoinHandle},
+    sync::mpsc::Receiver,
+    thread,
 };
 
 /// Represents the status of a core runner.

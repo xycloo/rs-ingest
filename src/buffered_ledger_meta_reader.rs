@@ -1,8 +1,10 @@
 use std::io::{self, Read};
 use std::sync::mpsc::{SendError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
-use stellar_xdr::next::{LedgerCloseMeta, Type, TypeVariant, DEFAULT_XDR_RW_DEPTH_LIMIT};
-use std::io::prelude::*;
+use stellar_xdr::next::{LedgerCloseMeta, Type, TypeVariant, Limits};
+
+/// prevents stack overflow
+pub const DEFAULT_XDR_RW_DEPTH_LIMIT: u32 = 500;
 
 // from the stellar/go/ingestion lib
 const META_PIPE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
@@ -258,7 +260,7 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
         }
 
         let mut reader = self.reader.as_mut().unwrap();
-        let mut xdr_reader = stellar_xdr::next::DepthLimitedRead::new(&mut reader, DEFAULT_XDR_RW_DEPTH_LIMIT);
+        let mut xdr_reader = stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
         for t in stellar_xdr::next::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
             &mut xdr_reader,
@@ -327,7 +329,7 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
         }
 
         let mut reader = self.reader.as_mut().unwrap();
-        let mut xdr_reader = stellar_xdr::next::DepthLimitedRead::new(&mut reader, DEFAULT_XDR_RW_DEPTH_LIMIT);
+        let mut xdr_reader = stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
         for t in stellar_xdr::next::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
             &mut xdr_reader,

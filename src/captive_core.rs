@@ -159,7 +159,6 @@ impl CaptiveCore {
                 let ledger_seq = match meta.clone() {
                     LedgerCloseMeta::V1(v1) => v1.ledger_header.header.ledger_seq,
                     LedgerCloseMeta::V0(v0) => v0.ledger_header.header.ledger_seq,
-                    LedgerCloseMeta::V2(v2) => v2.ledger_header.header.ledger_seq,
                 };
 
                 if ledger_seq == sequence {

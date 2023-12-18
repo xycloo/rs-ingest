@@ -1,7 +1,7 @@
 // Note: this example is still untested.
 
 use ingest::{CaptiveCore, IngestionConfig, SupportedNetwork};
-use stellar_xdr::next::{LedgerCloseMeta, TransactionMeta};
+use stellar_xdr::next::LedgerCloseMeta;
 
 pub fn main() {
     let config = IngestionConfig {
@@ -30,12 +30,6 @@ pub fn main() {
                 println!(
                     "v1 meta: {}",
                     serde_json::to_string_pretty(&v1.tx_set).unwrap()
-                )
-            }
-            LedgerCloseMeta::V2(v2) => {
-                println!(
-                    "v2 meta: {}",
-                    serde_json::to_string_pretty(&v2.tx_set).unwrap()
                 )
             }
         }

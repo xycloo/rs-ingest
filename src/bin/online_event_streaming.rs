@@ -1,7 +1,5 @@
 use ingest::{CaptiveCore, IngestionConfig, SupportedNetwork, LedgerCloseMetaReader};
-use stellar_xdr::next::{LedgerCloseMeta, TransactionMeta};
 
-const TARGET_SEQ: u32 = 387468;
 
 pub fn main() {
     let config = IngestionConfig {
