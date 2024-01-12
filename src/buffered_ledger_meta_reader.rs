@@ -187,7 +187,7 @@ impl BufferedLedgerMetaReader {
                 BufferedLedgerMetaReaderMode::MultiThread => {
                     // make sure that at least one transmittor is some
                     // when running multi-thread mode.
-                    if !tx_is && !tx_is {
+                    if !tx_is && !sync_tx_is {
                         return Err(BufReaderError::MissingTransmitter);
                     }
                     None
