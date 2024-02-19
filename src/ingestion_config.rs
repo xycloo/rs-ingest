@@ -8,7 +8,7 @@ impl Default for ContextPath {
 }
 
 /// Enum describing the network to run stellar-core on.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum SupportedNetwork {
     /// Ingest on futurenet.
     Futurenet,
