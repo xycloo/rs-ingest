@@ -81,7 +81,7 @@ impl StellarCoreRunner {
         cmd.current_dir(&self.context_path)
             .arg(conf_arg)
             //.arg("--in-memory") // TODO: manage in-memory or DB running on implementor choice.
-            .arg("--ll ERROR");
+            .arg("--ll INFO");
 
         let cmd = cmd.stdout(std::process::Stdio::piped()).spawn();
 
