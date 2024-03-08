@@ -425,8 +425,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
         // LCL on the existing database instead of always creating
         // a new one and catching up.
         {
-            self.run_core_cli(&["new-db"])?;
-            self.process.as_mut().unwrap().wait().unwrap();
+            //self.run_core_cli(&["new-db"])?;
+            //self.process.as_mut().unwrap().wait().unwrap();
 
             let _ = self.run_core_cli(&["catchup", "current/2"]);
             self.process.as_mut().unwrap().wait().unwrap();
