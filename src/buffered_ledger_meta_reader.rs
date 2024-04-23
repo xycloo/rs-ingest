@@ -119,6 +119,9 @@ pub struct BufferedLedgerMetaReader {
     /// An optional sync transmitter.
     sync_transmitter: Option<SyncSender<Box<MetaResult>>>,
 
+    async_transmitter: Option<tokio::sync::mpsc::UnboundedSender<Box<MetaResult>>>,
+    async_transmitter_bounded: Option<tokio::sync::mpsc::Sender<Box<MetaResult>>>,
+
     /// Indicates whether the reader has been cloned.
     /// A cloned reader is just a lightweight placeholder
     /// reader which is only used to retrieve the mode.
@@ -135,6 +138,8 @@ impl Clone for BufferedLedgerMetaReader {
             cached: None,
             transmitter: None,
             sync_transmitter: None,
+            async_transmitter: None,
+            async_transmitter_bounded: None,
             cloned: true,
         }
     }
@@ -157,6 +162,8 @@ impl BufferedLedgerMetaReader {
         reader: Box<dyn Read + Send>,
         transmitter: Option<std::sync::mpsc::Sender<Box<MetaResult>>>,
         sync_transmitter: Option<SyncSender<Box<MetaResult>>>,
+        async_transmitter: Option<tokio::sync::mpsc::UnboundedSender<Box<MetaResult>>>,
+        async_transmitter_bounded: Option<tokio::sync::mpsc::Sender<Box<MetaResult>>>
     ) -> Result<Self, BufReaderError> {
         let reader = io::BufReader::with_capacity(META_PIPE_BUFFER_SIZE, reader);
 
@@ -187,7 +194,7 @@ impl BufferedLedgerMetaReader {
                 BufferedLedgerMetaReaderMode::MultiThread => {
                     // make sure that at least one transmittor is some
                     // when running multi-thread mode.
-                    if !tx_is && !sync_tx_is {
+                    if !tx_is && !sync_tx_is && !async_transmitter.is_some() {
                         return Err(BufReaderError::MissingTransmitter);
                     }
                     None
@@ -201,6 +208,8 @@ impl BufferedLedgerMetaReader {
             cached,
             transmitter,
             sync_transmitter,
+            async_transmitter,
+            async_transmitter_bounded,
             cloned: false,
         })
     }
@@ -357,6 +366,44 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
                     .as_ref()
                     .unwrap()
                     .send(Box::new(meta_obj))?
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl BufferedLedgerMetaReader {
+    pub async fn async_multi_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError> {
+        if self.mode != BufferedLedgerMetaReaderMode::MultiThread {
+            return Err(BufReaderError::WrongModeSingleThread);
+        }
+
+        if self.cloned {
+            return Err(BufReaderError::UsedClonedBufreader);
+        }
+
+        let mut reader = self.reader.as_mut().unwrap();
+        let mut xdr_reader = stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
+        for t in stellar_xdr::next::Type::read_xdr_framed_iter(
+            TypeVariant::LedgerCloseMeta,
+            &mut xdr_reader,
+        ) {
+            println!("\n\n Inner got result");
+            let meta_obj = match t {
+                Ok(ledger_close_meta) => MetaResult {
+                    ledger_close_meta: Some(ledger_close_meta.into()),
+                    err: None,
+                },
+
+                Err(_) => MetaResult {
+                    ledger_close_meta: None,
+                    err: Some(BufReaderError::ReadXdrNext),
+                },
+            };
+
+            if let Some(tx) = self.async_transmitter.as_ref() {
+                tx.send(Box::new(meta_obj)).unwrap();
             }
         }
 

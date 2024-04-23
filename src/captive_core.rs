@@ -180,5 +180,10 @@ impl CaptiveCore {
         Ok(self.stellar_core_runner.run()?)
     }
 
+
+    pub async fn async_start_online_no_range(&mut self) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, Error> {
+        Ok(self.stellar_core_runner.run_async().await?)
+    }
+
     // TODO: method to start from ledger.
 }

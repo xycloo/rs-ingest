@@ -219,6 +219,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
             Box::new(reader),
             None,
             None,
+            None,
+                None
         ) {
             Ok(reader) => reader,
             Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -312,6 +314,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
                                         // transmitters can be cloned
                                         None,
                                         Some(cloned.clone()),
+                                        None,
+                None
                                     ) {
                                         Ok(reader) => reader,
                                         Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -371,6 +375,8 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
                                         // transmitters can be cloned
                                         Some(cloned.clone()),
                                         None,
+                                        None,
+                None
                                     ) {
                                         Ok(reader) => reader,
                                         Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -464,6 +470,33 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 }
 
 impl StellarCoreRunner {
+    pub async fn run_async(&mut self) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
+        if self.status != RunnerStatus::Closed {
+            return Err(RunnerError::AlreadyRunning);
+        }
+
+        self.status = RunnerStatus::RunningOnline;
+
+        // Creating/resetting the DB and a quick catchup.
+        // TODO: optimize this process by checking what's the
+        // LCL on the existing database instead of always creating
+        // a new one and catching up.
+        {
+            //self.run_core_cli(&["new-db"])?;
+            //self.process.as_mut().unwrap().wait().unwrap();
+
+            let _ = self.run_core_cli(&["catchup", "current/2"]);
+            self.process.as_mut().unwrap().wait().unwrap();
+        }
+
+        self.run_core_cli(&["run", "--metadata-output-stream fd:1"])?;
+        let stdout = self.process.as_mut().unwrap().stdout.take().unwrap(); // TODO: handle panic;
+
+        let reader = BufReader::new(stdout);
+
+        self.start_and_transmitter_async(reader).await
+    }
+
     fn start_and_transmitter(
         &mut self,
         reader: BufReader<ChildStdout>,
@@ -475,6 +508,8 @@ impl StellarCoreRunner {
                 Box::new(reader),
                 Some(transmitter),
                 None,
+                None,
+                None
             ) {
                 Ok(reader) => reader,
                 Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -504,6 +539,8 @@ impl StellarCoreRunner {
                 Box::new(reader),
                 None,
                 Some(transmitter),
+                None,
+                None
             ) {
                 Ok(reader) => reader,
                 Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -514,6 +551,37 @@ impl StellarCoreRunner {
             thread::spawn(move || {
                 stateless_ledger_buffer_reader
                     .multi_thread_read_ledger_meta_from_pipe()
+                    .unwrap()
+            })
+        };
+
+        Ok(receiver)
+    }
+
+    async fn start_and_transmitter_async(
+        &mut self,
+        reader: BufReader<ChildStdout>,
+    ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
+        let (transmitter, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let _handle = {
+            let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
+                BufferedLedgerMetaReaderMode::MultiThread,
+                Box::new(reader),
+                None,
+                None,
+                Some(transmitter),
+                None
+            ) {
+                Ok(reader) => reader,
+                Err(error) => return Err(RunnerError::MetaReader(error)),
+            };
+
+            self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+
+            tokio::spawn(async move {
+                stateless_ledger_buffer_reader
+                    .async_multi_thread_read_ledger_meta_from_pipe()
+                    .await
                     .unwrap()
             })
         };
