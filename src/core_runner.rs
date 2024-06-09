@@ -476,6 +476,7 @@ impl StellarCoreRunner {
         &mut self,
         from: u32,
         to: u32,
+        to_current: bool // note:this is a hotfix, more complete fix is todo.
     ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
         if self.status != RunnerStatus::Closed {
             return Err(RunnerError::AlreadyRunning);
@@ -488,7 +489,7 @@ impl StellarCoreRunner {
             let stagger_times = ledgers_amount / stagger_every;
 
             let receiver = if stagger_times <= 1 {
-                let range = format!("{}/{}", to, to - from + 1);
+                let range = format!("{}/{}", to, to - from + 1); // note: staggering doesn't support current ledger catchups
                 self.run_core_cli(&[
                     "catchup",
                     &range,
@@ -557,7 +558,11 @@ impl StellarCoreRunner {
             
             receiver
         } else {
-            let range = format!("{}/{}", to, to - from + 1);
+            let range = if !to_current {
+                format!("{}/{}", to, to - from + 1)
+            } else {
+                format!("current/{}", to - from + 1)
+            };
 
             self.run_core_cli(&[
                 "catchup",
