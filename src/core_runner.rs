@@ -1,4 +1,4 @@
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::{sync::mpsc::{UnboundedReceiver, UnboundedSender}, task::JoinHandle};
 
 use crate::{
     BufReaderError, BufferedLedgerMetaReader, BufferedLedgerMetaReaderMode, IngestionConfig,
@@ -532,7 +532,8 @@ impl StellarCoreRunner {
 
                         let stdout = process.stdout.unwrap();
                         let reader = BufReader::new(stdout);
-                        let _ = Self::inner_start_from_pipe(reader, transmitter.clone()).await.unwrap();
+                        let (_, handle) = Self::inner_start_from_pipe(reader, transmitter.clone()).await.unwrap();
+                        let _ = handle.await;
                     }
                 });
 
@@ -651,12 +652,12 @@ impl StellarCoreRunner {
     ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
         let (transmitter, receiver) = tokio::sync::mpsc::unbounded_channel();
         let bufreader = Self::inner_start_from_pipe(reader, transmitter).await?;
-        self.ledger_buffer_reader = Some(bufreader);
+        self.ledger_buffer_reader = Some(bufreader.0);
 
         Ok(receiver)
     }
 
-    async fn inner_start_from_pipe(reader: BufReader<ChildStdout>, transmitter: UnboundedSender<Box<MetaResult>>) -> Result<BufferedLedgerMetaReader, RunnerError> {
+    async fn inner_start_from_pipe(reader: BufReader<ChildStdout>, transmitter: UnboundedSender<Box<MetaResult>>) -> Result<(BufferedLedgerMetaReader, JoinHandle<()>), RunnerError> {
         let handle = {
             let stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
                 BufferedLedgerMetaReaderMode::MultiThread,
@@ -671,14 +672,14 @@ impl StellarCoreRunner {
             };
 
             let mut cloned = stateless_ledger_buffer_reader.clone();
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 cloned
                     .async_multi_thread_read_ledger_meta_from_pipe()
                     .await
                     .unwrap()
             });
 
-            stateless_ledger_buffer_reader
+            (stateless_ledger_buffer_reader, handle)
         };
 
         Ok(handle)
