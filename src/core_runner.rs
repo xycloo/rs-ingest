@@ -1,3 +1,5 @@
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
 use crate::{
     BufReaderError, BufferedLedgerMetaReader, BufferedLedgerMetaReaderMode, IngestionConfig,
     MetaResult, MultiThreadBufferedLedgerMetaReader, SingleThreadBufferedLedgerMetaReader,
@@ -470,6 +472,91 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
 }
 
 impl StellarCoreRunner {
+    pub async fn async_catchup_multi_thread(
+        &mut self,
+        from: u32,
+        to: u32,
+    ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
+        if self.status != RunnerStatus::Closed {
+            return Err(RunnerError::AlreadyRunning);
+        }
+
+        self.status = RunnerStatus::RunningOffline;
+
+        if let Some(stagger_every) = self.staggered {
+            let ledgers_amount = to - from;
+            let stagger_times = ledgers_amount / stagger_every;
+
+            let receiver = if stagger_times <= 1 {
+                let range = format!("{}/{}", to, to - from + 1);
+                self.run_core_cli(&[
+                    "catchup",
+                    "--in-memory",
+                    &range,
+                    "--metadata-output-stream fd:1",
+                ])?;
+                let stdout = self.process.as_mut().unwrap().stdout.take().unwrap(); // TODO: handle panic
+
+                let reader = BufReader::new(stdout);
+                self.start_and_transmitter_async(reader).await
+            } else {
+                let (transmitter, receiver) = tokio::sync::mpsc::unbounded_channel();
+
+                let context_path = self.context_path.clone();
+                let executable_path = self.executable_path.clone();
+
+                let step = (to - from + 1) / stagger_times;
+                let ranges: Vec<_> = (0..stagger_times)
+                    .map(|i| {
+                        let start = from + i * step;
+                        let end = std::cmp::min(start + step - 1, to);
+                        start..=end
+                    })
+                    .collect();
+                
+                tokio::spawn(async move {
+                    for range in ranges {
+                        let range =
+                            format!("{}/{}", range.end(), range.end() - range.start() + 1);
+
+                        let process = run_core_cli(
+                            &[
+                                "catchup",
+                                "--in-memory",
+                                &range,
+                                "--metadata-output-stream fd:1",
+                            ],
+                            &context_path,
+                            &executable_path,
+                        ).unwrap();
+
+                        let stdout = process.stdout.unwrap();
+                        let reader = BufReader::new(stdout);
+                        let _ = Self::inner_start_from_pipe(reader, transmitter.clone()).await.unwrap();
+                    }
+                });
+
+                Ok(receiver)
+            };
+            
+            receiver
+        } else {
+            let range = format!("{}/{}", to, to - from + 1);
+
+            self.run_core_cli(&[
+                "catchup",
+                "--in-memory",
+                &range,
+                "--metadata-output-stream fd:1",
+            ])?;
+            let stdout = self.process.as_mut().unwrap().stdout.take().unwrap(); // TODO: handle panic
+
+            let reader = BufReader::new(stdout);
+
+            self.start_and_transmitter_async(reader).await
+        }
+    }
+
     pub async fn run_async(&mut self) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
         if self.status != RunnerStatus::Closed {
             return Err(RunnerError::AlreadyRunning);
@@ -563,8 +650,15 @@ impl StellarCoreRunner {
         reader: BufReader<ChildStdout>,
     ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
         let (transmitter, receiver) = tokio::sync::mpsc::unbounded_channel();
-        let _handle = {
-            let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
+        let bufreader = Self::inner_start_from_pipe(reader, transmitter).await?;
+        self.ledger_buffer_reader = Some(bufreader);
+
+        Ok(receiver)
+    }
+
+    async fn inner_start_from_pipe(reader: BufReader<ChildStdout>, transmitter: UnboundedSender<Box<MetaResult>>) -> Result<BufferedLedgerMetaReader, RunnerError> {
+        let handle = {
+            let stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
                 BufferedLedgerMetaReaderMode::MultiThread,
                 Box::new(reader),
                 None,
@@ -576,17 +670,18 @@ impl StellarCoreRunner {
                 Err(error) => return Err(RunnerError::MetaReader(error)),
             };
 
-            self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
-
+            let mut cloned = stateless_ledger_buffer_reader.clone();
             tokio::spawn(async move {
-                stateless_ledger_buffer_reader
+                cloned
                     .async_multi_thread_read_ledger_meta_from_pipe()
                     .await
                     .unwrap()
-            })
+            });
+
+            stateless_ledger_buffer_reader
         };
 
-        Ok(receiver)
+        Ok(handle)
     }
 }
 
