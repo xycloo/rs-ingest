@@ -491,7 +491,6 @@ impl StellarCoreRunner {
                 let range = format!("{}/{}", to, to - from + 1);
                 self.run_core_cli(&[
                     "catchup",
-                    "--in-memory",
                     &range,
                     "--metadata-output-stream fd:1",
                 ])?;
@@ -522,7 +521,6 @@ impl StellarCoreRunner {
                         let process = run_core_cli(
                             &[
                                 "catchup",
-                                "--in-memory",
                                 &range,
                                 "--metadata-output-stream fd:1",
                             ],
@@ -563,7 +561,6 @@ impl StellarCoreRunner {
 
             self.run_core_cli(&[
                 "catchup",
-                "--in-memory",
                 &range,
                 "--metadata-output-stream fd:1",
             ])?;
