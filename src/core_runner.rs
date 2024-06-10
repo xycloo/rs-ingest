@@ -558,7 +558,7 @@ impl StellarCoreRunner {
             
             receiver
         } else {
-            let range = if !to_current {
+            /*let range = if !to_current {
                 format!("{}/{}", to, to - from + 1)
             } else {
                 format!("current/{}", to - from + 1)
@@ -573,7 +573,52 @@ impl StellarCoreRunner {
 
             let reader = BufReader::new(stdout);
 
-            self.start_and_transmitter_async(reader).await
+            self.start_and_transmitter_async(reader).await*/
+            let (transmitter, receiver) = tokio::sync::mpsc::unbounded_channel();
+
+            let context_path = self.context_path.clone();
+            let executable_path = self.executable_path.clone();
+
+            
+            tokio::spawn(async move {
+                //for range in ranges {
+                    let range =
+                        format!("current/{}", to - from + 1);
+
+                    let process = run_core_cli(
+                        &[
+                            "catchup",
+                            &range,
+                            "--metadata-output-stream fd:1",
+                        ],
+                        &context_path,
+                        &executable_path,
+                    ).unwrap();
+
+                    let stdout = process.stdout.unwrap();
+                    let reader = BufReader::new(stdout);
+                    //let _ = Self::inner_start_from_pipe(reader, transmitter.clone()).await.unwrap();
+                    let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
+                        BufferedLedgerMetaReaderMode::MultiThread,
+                        Box::new(reader),
+                        None,
+                        None,
+                        Some(transmitter.clone()),
+                        None
+                    ) {
+                        Ok(reader) => reader,
+                        Err(error) => return Err(RunnerError::MetaReader(error)),
+                    };
+        
+                    stateless_ledger_buffer_reader
+                        .async_multi_thread_read_ledger_meta_from_pipe()
+                        .await
+                        .unwrap();
+                //};
+
+                Ok(())
+            });
+            Ok(receiver)
         }
     }
 
