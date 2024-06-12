@@ -715,15 +715,8 @@ impl StellarCoreRunner {
         reader: BufReader<ChildStdout>,
     ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
         let (transmitter, receiver) = tokio::sync::mpsc::unbounded_channel();
-        let bufreader = Self::inner_start_from_pipe(reader, transmitter).await?;
-        self.ledger_buffer_reader = Some(bufreader);
-
-        Ok(receiver)
-    }
-
-    async fn inner_start_from_pipe(reader: BufReader<ChildStdout>, transmitter: UnboundedSender<Box<MetaResult>>) -> Result<BufferedLedgerMetaReader, RunnerError> {
-        let handle = {
-            let stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
+        let _handle = {
+            let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
                 BufferedLedgerMetaReaderMode::MultiThread,
                 Box::new(reader),
                 None,
@@ -735,18 +728,17 @@ impl StellarCoreRunner {
                 Err(error) => return Err(RunnerError::MetaReader(error)),
             };
 
-            let mut cloned = stateless_ledger_buffer_reader.clone();
+            self.ledger_buffer_reader = Some(stateless_ledger_buffer_reader.clone());
+
             tokio::spawn(async move {
-                cloned
+                stateless_ledger_buffer_reader
                     .async_multi_thread_read_ledger_meta_from_pipe()
                     .await
                     .unwrap()
-            });
-
-            stateless_ledger_buffer_reader
+            })
         };
 
-        Ok(handle)
+        Ok(receiver)
     }
 }
 
