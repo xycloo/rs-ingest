@@ -582,8 +582,11 @@ impl StellarCoreRunner {
             
             tokio::spawn(async move {
                 //for range in ranges {
-                    let range =
-                        format!("current/{}", to - from + 1);
+                    let range = if to_current {
+                        format!("current/{}", to - from + 1)
+                    } else {
+                        format!("{}/{}", to, to - from + 1)
+                    };
 
                     let process = run_core_cli(
                         &[
