@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 use std::sync::mpsc::{SendError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
-use stellar_xdr::next::{LedgerCloseMeta, Type, TypeVariant, Limits};
+use stellar_xdr::next::{LedgerCloseMeta, Limits, Type, TypeVariant};
 
 /// prevents stack overflow
 pub const DEFAULT_XDR_RW_DEPTH_LIMIT: u32 = 500;
@@ -44,6 +44,9 @@ pub enum BufReaderError {
     /// Error in sending to receiver.
     #[error("Error while sending meta to receiver {0}")]
     SendError(#[from] SendError<Box<MetaResult>>),
+
+    #[error("Failed to aquire lock")]
+    LockError,
 }
 
 /// Wrapper struct to hold the `LedgerCloseMeta` data.
@@ -163,7 +166,7 @@ impl BufferedLedgerMetaReader {
         transmitter: Option<std::sync::mpsc::Sender<Box<MetaResult>>>,
         sync_transmitter: Option<SyncSender<Box<MetaResult>>>,
         async_transmitter: Option<tokio::sync::mpsc::UnboundedSender<Box<MetaResult>>>,
-        async_transmitter_bounded: Option<tokio::sync::mpsc::Sender<Box<MetaResult>>>
+        async_transmitter_bounded: Option<tokio::sync::mpsc::Sender<Box<MetaResult>>>,
     ) -> Result<Self, BufReaderError> {
         let reader = io::BufReader::with_capacity(META_PIPE_BUFFER_SIZE, reader);
 
@@ -269,7 +272,8 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
         }
 
         let mut reader = self.reader.as_mut().unwrap();
-        let mut xdr_reader = stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
+        let mut xdr_reader =
+            stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
         for t in stellar_xdr::next::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
             &mut xdr_reader,
@@ -289,7 +293,12 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
             // The below unwrap on cached is safe since initialization
             // prevents initializing in the wrong mode and all
             // BufferedLedgerMetaReader fields are private.
-            self.cached.as_ref().unwrap().lock().unwrap().push(meta_obj);
+            self.cached
+                .as_ref()
+                .unwrap()
+                .lock()
+                .map_err(|_| BufReaderError::LockError)?
+                .push(meta_obj);
         }
 
         Ok(())
@@ -307,7 +316,12 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
         // The below unwrap on cached is safe since initialization
         // prevents initializing in the wrong mode and all
         // BufferedLedgerMetaReader fields are private.
-        let locked = self.cached.as_ref().unwrap().lock().unwrap();
+        let locked = self
+            .cached
+            .as_ref()
+            .unwrap()
+            .lock()
+            .map_err(|_| BufReaderError::LockError)?;
         Ok((*locked).clone())
     }
 
@@ -338,7 +352,8 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
         }
 
         let mut reader = self.reader.as_mut().unwrap();
-        let mut xdr_reader = stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
+        let mut xdr_reader =
+            stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
         for t in stellar_xdr::next::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
             &mut xdr_reader,
@@ -374,7 +389,9 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
 }
 
 impl BufferedLedgerMetaReader {
-    pub async fn async_multi_thread_read_ledger_meta_from_pipe(&mut self) -> Result<(), BufReaderError> {
+    pub async fn async_multi_thread_read_ledger_meta_from_pipe(
+        &mut self,
+    ) -> Result<(), BufReaderError> {
         if self.mode != BufferedLedgerMetaReaderMode::MultiThread {
             return Err(BufReaderError::WrongModeSingleThread);
         }
@@ -384,7 +401,8 @@ impl BufferedLedgerMetaReader {
         }
 
         let mut reader = self.reader.as_mut().unwrap();
-        let mut xdr_reader = stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
+        let mut xdr_reader =
+            stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
         for t in stellar_xdr::next::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
             &mut xdr_reader,
@@ -403,7 +421,14 @@ impl BufferedLedgerMetaReader {
             };
 
             if let Some(tx) = self.async_transmitter.as_ref() {
-                tx.send(Box::new(meta_obj)).unwrap();
+                let transmit = tx.send(Box::new(meta_obj));
+
+                if transmit.is_err() {
+                    log::error!(
+                        "Failed to transmit ledger close: {:?}",
+                        transmit.err().unwrap()
+                    )
+                }
             }
         }
 
