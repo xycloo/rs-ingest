@@ -425,9 +425,11 @@ impl BufferedLedgerMetaReader {
 
                 if transmit.is_err() {
                     log::error!(
-                        "Failed to transmit ledger close: {:?}",
+                        "Failed to transmit ledger close: {:?}. Receiver dropped, shutting down ...",
                         transmit.err().unwrap()
-                    )
+                    );
+
+                    panic!("Receiver dropped");
                 }
             }
         }
