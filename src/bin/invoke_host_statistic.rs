@@ -37,6 +37,7 @@ pub fn main() {
             for tx_phase in set.phases.iter() {
                 let set = match tx_phase {
                     TransactionPhase::V0(set) => set,
+                    _ => panic!("This binary doesn't support v1 txsets yet")
                 };
                 for set in set.iter() {
                     let ops: Vec<&Operation> = match set {

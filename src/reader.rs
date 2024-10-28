@@ -118,6 +118,14 @@ impl LedgerCloseMetaReader {
                                         }
                                     }
                                 }
+
+                                TransactionPhase::V1(v1) => {
+                                    for stage in v1.execution_stages.to_vec() {
+                                        for thread in stage.0.to_vec() {
+                                            envelopes.append(&mut thread.0.to_vec());
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
