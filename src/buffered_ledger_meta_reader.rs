@@ -422,7 +422,7 @@ impl BufferedLedgerMetaReader {
 
             if let Some(tx) = self.async_transmitter.as_ref() {
                 let transmit = tx.send(Box::new(meta_obj));
-
+                println!("sent {:?}", transmit);
                 if transmit.is_err() {
                     log::error!(
                         "Failed to transmit ledger close: {:?}. Receiver dropped, shutting down ...",
