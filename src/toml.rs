@@ -115,9 +115,8 @@ pub fn generate_predefined_cfg(path: &str, network: SupportedNetwork) {
                 .expect("cannot write to file");
         }
 
-        SupportedNetwork::Testnet => {
-            cfg.write_all(PREDEFINED_TESTNET_CONFIG.as_bytes())
-                .expect("cannot write to file")
-        }
+        SupportedNetwork::Testnet => cfg
+            .write_all(PREDEFINED_TESTNET_CONFIG.as_bytes())
+            .expect("cannot write to file"),
     }
 }

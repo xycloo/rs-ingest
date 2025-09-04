@@ -34,8 +34,8 @@ mod buffered_ledger_meta_reader;
 mod captive_core;
 mod core_runner;
 mod ingestion_config;
-mod toml;
 mod reader;
+mod toml;
 
 pub use buffered_ledger_meta_reader::*;
 pub use captive_core::*;

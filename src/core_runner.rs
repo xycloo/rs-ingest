@@ -222,7 +222,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
             None,
             None,
             None,
-                None
+            None,
         ) {
             Ok(reader) => reader,
             Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -290,7 +290,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
                             start..=end
                         })
                         .collect();
-                    
+
                     thread::spawn(move || {
                         for range in ranges {
                             let range =
@@ -317,7 +317,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
                                         None,
                                         Some(cloned.clone()),
                                         None,
-                None
+                                        None,
                                     ) {
                                         Ok(reader) => reader,
                                         Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -378,7 +378,7 @@ impl StellarCoreRunnerPublic for StellarCoreRunner {
                                         Some(cloned.clone()),
                                         None,
                                         None,
-                None
+                                        None,
                                     ) {
                                         Ok(reader) => reader,
                                         Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -476,7 +476,7 @@ impl StellarCoreRunner {
         &mut self,
         from: u32,
         to: u32,
-        to_current: bool // note:this is a hotfix, more complete fix is todo.
+        to_current: bool, // note:this is a hotfix, more complete fix is todo.
     ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
         if self.status != RunnerStatus::Closed {
             return Err(RunnerError::AlreadyRunning);
@@ -490,11 +490,7 @@ impl StellarCoreRunner {
 
             let receiver = if stagger_times <= 1 {
                 let range = format!("{}/{}", to, to - from + 1); // note: staggering doesn't support current ledger catchups
-                self.run_core_cli(&[
-                    "catchup",
-                    &range,
-                    "--metadata-output-stream fd:1",
-                ])?;
+                self.run_core_cli(&["catchup", &range, "--metadata-output-stream fd:1"])?;
                 let stdout = self.process.as_mut().unwrap().stdout.take().unwrap(); // TODO: handle panic
 
                 let reader = BufReader::new(stdout);
@@ -513,21 +509,17 @@ impl StellarCoreRunner {
                         start..=end
                     })
                     .collect();
-                
+
                 tokio::spawn(async move {
                     for range in ranges {
-                        let range =
-                            format!("{}/{}", range.end(), range.end() - range.start() + 1);
+                        let range = format!("{}/{}", range.end(), range.end() - range.start() + 1);
 
                         let process = run_core_cli(
-                            &[
-                                "catchup",
-                                &range,
-                                "--metadata-output-stream fd:1",
-                            ],
+                            &["catchup", &range, "--metadata-output-stream fd:1"],
                             &context_path,
                             &executable_path,
-                        ).unwrap();
+                        )
+                        .unwrap();
 
                         let stdout = process.stdout.unwrap();
                         let reader = BufReader::new(stdout);
@@ -538,24 +530,24 @@ impl StellarCoreRunner {
                             None,
                             None,
                             Some(transmitter.clone()),
-                            None
+                            None,
                         ) {
                             Ok(reader) => reader,
                             Err(error) => return Err(RunnerError::MetaReader(error)),
                         };
-            
+
                         stateless_ledger_buffer_reader
                             .async_multi_thread_read_ledger_meta_from_pipe()
                             .await
                             .unwrap()
-                    };
+                    }
 
                     Ok(())
                 });
 
                 Ok(receiver)
             };
-            
+
             receiver
         } else {
             /*let range = if !to_current {
@@ -579,44 +571,40 @@ impl StellarCoreRunner {
             let context_path = self.context_path.clone();
             let executable_path = self.executable_path.clone();
 
-            
             tokio::spawn(async move {
                 //for range in ranges {
-                    let range = if to_current {
-                        format!("current/{}", to - from + 1)
-                    } else {
-                        format!("{}/{}", to, to - from + 1)
-                    };
+                let range = if to_current {
+                    format!("current/{}", to - from + 1)
+                } else {
+                    format!("{}/{}", to, to - from + 1)
+                };
 
-                    let process = run_core_cli(
-                        &[
-                            "catchup",
-                            &range,
-                            "--metadata-output-stream fd:1",
-                        ],
-                        &context_path,
-                        &executable_path,
-                    ).unwrap();
+                let process = run_core_cli(
+                    &["catchup", &range, "--metadata-output-stream fd:1"],
+                    &context_path,
+                    &executable_path,
+                )
+                .unwrap();
 
-                    let stdout = process.stdout.unwrap();
-                    let reader = BufReader::new(stdout);
-                    //let _ = Self::inner_start_from_pipe(reader, transmitter.clone()).await.unwrap();
-                    let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
-                        BufferedLedgerMetaReaderMode::MultiThread,
-                        Box::new(reader),
-                        None,
-                        None,
-                        Some(transmitter.clone()),
-                        None
-                    ) {
-                        Ok(reader) => reader,
-                        Err(error) => return Err(RunnerError::MetaReader(error)),
-                    };
-        
-                    stateless_ledger_buffer_reader
-                        .async_multi_thread_read_ledger_meta_from_pipe()
-                        .await
-                        .unwrap();
+                let stdout = process.stdout.unwrap();
+                let reader = BufReader::new(stdout);
+                //let _ = Self::inner_start_from_pipe(reader, transmitter.clone()).await.unwrap();
+                let mut stateless_ledger_buffer_reader = match BufferedLedgerMetaReader::new(
+                    BufferedLedgerMetaReaderMode::MultiThread,
+                    Box::new(reader),
+                    None,
+                    None,
+                    Some(transmitter.clone()),
+                    None,
+                ) {
+                    Ok(reader) => reader,
+                    Err(error) => return Err(RunnerError::MetaReader(error)),
+                };
+
+                stateless_ledger_buffer_reader
+                    .async_multi_thread_read_ledger_meta_from_pipe()
+                    .await
+                    .unwrap();
                 //};
 
                 Ok(())
@@ -625,7 +613,9 @@ impl StellarCoreRunner {
         }
     }
 
-    pub async fn run_async(&mut self) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
+    pub async fn run_async(
+        &mut self,
+    ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, RunnerError> {
         if self.status != RunnerStatus::Closed {
             return Err(RunnerError::AlreadyRunning);
         }
@@ -664,7 +654,7 @@ impl StellarCoreRunner {
                 Some(transmitter),
                 None,
                 None,
-                None
+                None,
             ) {
                 Ok(reader) => reader,
                 Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -695,7 +685,7 @@ impl StellarCoreRunner {
                 None,
                 Some(transmitter),
                 None,
-                None
+                None,
             ) {
                 Ok(reader) => reader,
                 Err(error) => return Err(RunnerError::MetaReader(error)),
@@ -725,7 +715,7 @@ impl StellarCoreRunner {
                 None,
                 None,
                 Some(transmitter),
-                None
+                None,
             ) {
                 Ok(reader) => reader,
                 Err(error) => return Err(RunnerError::MetaReader(error)),

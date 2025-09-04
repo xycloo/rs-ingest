@@ -171,11 +171,17 @@ impl CaptiveCore {
         Err(Error::LedgerNotFound)
     }
 
-    pub async fn async_prepare_ledgers(&mut self, range: &Range, to_current: bool) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, Error> {
+    pub async fn async_prepare_ledgers(
+        &mut self,
+        range: &Range,
+        to_current: bool,
+    ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, Error> {
         match range {
-            Range::Bounded(range) => {
-                self.stellar_core_runner.async_catchup_multi_thread(range.0, range.1, to_current).await.map_err(|runner| Error::Core(runner))
-            }
+            Range::Bounded(range) => self
+                .stellar_core_runner
+                .async_catchup_multi_thread(range.0, range.1, to_current)
+                .await
+                .map_err(|runner| Error::Core(runner)),
         }
     }
 
@@ -189,8 +195,9 @@ impl CaptiveCore {
         Ok(self.stellar_core_runner.run()?)
     }
 
-
-    pub async fn async_start_online_no_range(&mut self) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, Error> {
+    pub async fn async_start_online_no_range(
+        &mut self,
+    ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, Error> {
         Ok(self.stellar_core_runner.run_async().await?)
     }
 
