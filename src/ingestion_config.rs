@@ -3,7 +3,8 @@ pub struct ContextPath(pub String);
 
 impl Default for ContextPath {
     fn default() -> Self {
-        Self("/tmp/rs_ingestion_temp".to_string())
+        Self(std::env::var("STELLAR_CORE_CONTEXT_PATH")
+            .unwrap_or_else(|_| "/tmp/rs_ingestion_temp".to_string()))
     }
 }
 
