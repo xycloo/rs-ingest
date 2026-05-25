@@ -104,13 +104,18 @@ pub fn generate_predefined_cfg(path: &str, network: SupportedNetwork) {
 
     let http_query_port = std::env::var("STELLAR_CORE_HTTP_QUERY_PORT")
         .unwrap_or_else(|_| "8085".to_string());
+    let peer_port = std::env::var("STELLAR_CORE_PEER_PORT")
+        .unwrap_or_else(|_| "11725".to_string());
 
     let config = match network {
-        SupportedNetwork::Futurenet => PREDEFINED_FUTURENET_CONFIG.to_string(),
+        SupportedNetwork::Futurenet => PREDEFINED_FUTURENET_CONFIG
+            .replace("PEER_PORT=11725", &format!("PEER_PORT={}", peer_port)),
         SupportedNetwork::Pubnet => PREDEFINED_PUBNET_CONFIG
-            .replace("HTTP_QUERY_PORT=8085", &format!("HTTP_QUERY_PORT={}", http_query_port)),
+            .replace("HTTP_QUERY_PORT=8085", &format!("HTTP_QUERY_PORT={}", http_query_port))
+            .replace("PEER_PORT=11725", &format!("PEER_PORT={}", peer_port)),
         SupportedNetwork::Testnet => PREDEFINED_TESTNET_CONFIG
-            .replace("HTTP_QUERY_PORT=8085", &format!("HTTP_QUERY_PORT={}", http_query_port)),
+            .replace("HTTP_QUERY_PORT=8085", &format!("HTTP_QUERY_PORT={}", http_query_port))
+            .replace("PEER_PORT=11725", &format!("PEER_PORT={}", peer_port)),
     };
 
     let mut cfg =
