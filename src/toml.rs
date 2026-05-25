@@ -102,22 +102,19 @@ pub fn generate_predefined_cfg(path: &str, network: SupportedNetwork) {
         }
     }
 
+    let http_query_port = std::env::var("STELLAR_CORE_HTTP_QUERY_PORT")
+        .unwrap_or_else(|_| "8085".to_string());
+
+    let config = match network {
+        SupportedNetwork::Futurenet => PREDEFINED_FUTURENET_CONFIG.to_string(),
+        SupportedNetwork::Pubnet => PREDEFINED_PUBNET_CONFIG
+            .replace("HTTP_QUERY_PORT=8085", &format!("HTTP_QUERY_PORT={}", http_query_port)),
+        SupportedNetwork::Testnet => PREDEFINED_TESTNET_CONFIG
+            .replace("HTTP_QUERY_PORT=8085", &format!("HTTP_QUERY_PORT={}", http_query_port)),
+    };
+
     let mut cfg =
         File::create(Path::new(path).join("stellar-core.cfg")).expect("cannot create file");
 
-    match network {
-        SupportedNetwork::Futurenet => {
-            cfg.write_all(PREDEFINED_FUTURENET_CONFIG.as_bytes())
-                .expect("cannot write to file");
-        }
-
-        SupportedNetwork::Pubnet => {
-            cfg.write_all(PREDEFINED_PUBNET_CONFIG.as_bytes())
-                .expect("cannot write to file");
-        }
-
-        SupportedNetwork::Testnet => cfg
-            .write_all(PREDEFINED_TESTNET_CONFIG.as_bytes())
-            .expect("cannot write to file"),
-    }
+    cfg.write_all(config.as_bytes()).expect("cannot write to file");
 }
