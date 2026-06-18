@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 use std::sync::mpsc::{SendError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
-use stellar_xdr::next::{LedgerCloseMeta, Limits, Type, TypeVariant};
+use stellar_xdr::{LedgerCloseMeta, Limits, Type, TypeVariant};
 
 /// prevents stack overflow
 pub const DEFAULT_XDR_RW_DEPTH_LIMIT: u32 = 500;
@@ -273,8 +273,8 @@ impl SingleThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
 
         let mut reader = self.reader.as_mut().unwrap();
         let mut xdr_reader =
-            stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
-        for t in stellar_xdr::next::Type::read_xdr_framed_iter(
+            stellar_xdr::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
+        for t in stellar_xdr::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
             &mut xdr_reader,
         ) {
@@ -353,8 +353,8 @@ impl MultiThreadBufferedLedgerMetaReader for BufferedLedgerMetaReader {
 
         let mut reader = self.reader.as_mut().unwrap();
         let mut xdr_reader =
-            stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
-        for t in stellar_xdr::next::Type::read_xdr_framed_iter(
+            stellar_xdr::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
+        for t in stellar_xdr::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
             &mut xdr_reader,
         ) {
@@ -402,8 +402,8 @@ impl BufferedLedgerMetaReader {
 
         let mut reader = self.reader.as_mut().unwrap();
         let mut xdr_reader =
-            stellar_xdr::next::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
-        for t in stellar_xdr::next::Type::read_xdr_framed_iter(
+            stellar_xdr::Limited::new(&mut reader, Limits::depth(DEFAULT_XDR_RW_DEPTH_LIMIT));
+        for t in stellar_xdr::Type::read_xdr_framed_iter(
             TypeVariant::LedgerCloseMeta,
             &mut xdr_reader,
         ) {
