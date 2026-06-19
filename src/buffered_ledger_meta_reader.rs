@@ -197,7 +197,7 @@ impl BufferedLedgerMetaReader {
                 BufferedLedgerMetaReaderMode::MultiThread => {
                     // make sure that at least one transmittor is some
                     // when running multi-thread mode.
-                    if !tx_is && !sync_tx_is && !async_transmitter.is_some() {
+                    if !tx_is && !sync_tx_is && !async_transmitter.is_some() && !async_transmitter_bounded.is_some() {
                         return Err(BufReaderError::MissingTransmitter);
                     }
                     None
@@ -430,6 +430,22 @@ impl BufferedLedgerMetaReader {
                     );
 
                     panic!("Receiver dropped");
+                }
+            } else if let Some(tx) = self.async_transmitter_bounded.as_ref() {
+                // spin-sleep when channel is full: keeps stellar-core blocked via OS pipe backpressure
+                let mut item = Box::new(meta_obj);
+                loop {
+                    match tx.try_send(item) {
+                        Ok(()) => break,
+                        Err(tokio::sync::mpsc::error::TrySendError::Full(returned)) => {
+                            item = returned;
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        }
+                        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                            log::error!("Bounded channel receiver dropped, shutting down ...");
+                            panic!("Receiver dropped");
+                        }
+                    }
                 }
             }
         }
