@@ -175,13 +175,13 @@ impl CaptiveCore {
         &mut self,
         range: &Range,
         to_current: bool,
-    ) -> Result<tokio::sync::mpsc::UnboundedReceiver<Box<MetaResult>>, Error> {
+    ) -> Result<tokio::sync::mpsc::Receiver<Box<MetaResult>>, Error> {
         match range {
             Range::Bounded(range) => self
                 .stellar_core_runner
                 .async_catchup_multi_thread(range.0, range.1, to_current)
                 .await
-                .map_err(|runner| Error::Core(runner)),
+                .map_err(Error::Core),
         }
     }
 
