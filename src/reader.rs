@@ -1,4 +1,4 @@
-use stellar_xdr::next::{
+use stellar_xdr::{
     ContractEvent, GeneralizedTransactionSet, LedgerCloseMeta, SorobanTransactionMeta,
     SorobanTransactionMetaV2, TransactionEnvelope, TransactionMeta, TransactionPhase,
     TransactionResultMeta, TransactionResultMetaV1, TxSetComponent,

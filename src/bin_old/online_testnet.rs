@@ -1,7 +1,7 @@
 // Note: this example is still untested.
 
 use ingest::{CaptiveCore, IngestionConfig, SupportedNetwork};
-use stellar_xdr::next::LedgerCloseMeta;
+use stellar_xdr::LedgerCloseMeta;
 
 pub fn main() {
     let config = IngestionConfig {
