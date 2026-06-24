@@ -3,7 +3,7 @@ use crate::{
     RunnerError, StellarCoreRunner, StellarCoreRunnerPublic,
 };
 use std::sync::mpsc::Receiver;
-use stellar_xdr::next::LedgerCloseMeta;
+use stellar_xdr::LedgerCloseMeta;
 
 #[derive(Clone, Copy)]
 /// Represents a bounded range

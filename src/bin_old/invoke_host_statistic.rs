@@ -1,5 +1,5 @@
 use ingest::{BoundedRange, CaptiveCore, IngestionConfig, Range, SupportedNetwork};
-use stellar_xdr::next::{
+use stellar_xdr::{
     LedgerCloseMeta, Operation, OperationBody, TransactionEnvelope, TransactionPhase,
     TxSetComponent,
 };
@@ -32,7 +32,7 @@ pub fn main() {
         let ledger = captive_core.get_ledger(n);
         if let LedgerCloseMeta::V1(v1) = ledger.unwrap() {
             let set = match &v1.tx_set {
-                stellar_xdr::next::GeneralizedTransactionSet::V1(set) => set,
+                stellar_xdr::GeneralizedTransactionSet::V1(set) => set,
             };
             for tx_phase in set.phases.iter() {
                 let set = match tx_phase {
