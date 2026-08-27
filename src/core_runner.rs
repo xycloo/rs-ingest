@@ -114,11 +114,15 @@ impl StellarCoreRunner {
 
     fn remove_temp_data(&self) -> Result<(), RunnerError> {
         let mut cmd = Command::new("rm");
-        cmd.arg("-rf")
+let status =         cmd
+.arg("-rf")
             .arg("buckets")
             .current_dir(&self.context_path)
             .spawn()?;
 
+if !status.wait_with_output().unwrap().status.success() {
+            return Err(RunnerError::CliExec);
+        }
         Ok(())
     }
 
